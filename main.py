@@ -6,7 +6,7 @@ from colorama import Fore, Style, init
 init()
 
 def startup():
-    global debug, banner, WiFiAttackModule, HandshakeCaptureModule, IRExplorer
+    global debug, banner, ModuleSetup, HandshakeCaptureModule, IRExplorer
     
     # And here lies random shit i pulled from stackoverflow
     # that i changed a bit to make it work in this shit code i made
@@ -50,10 +50,10 @@ def startup():
     
     missing = [] # i wonder why its missing :D
     try: 
-        from core.wifi_module import WiFiAttackModule
-        globals()['WiFiAttackModule'] = WiFiAttackModule
+        from core.wifi_module import ModuleSetup
+        globals()['ModuleSetup'] = ModuleSetup
     except ImportError: 
-        WiFiAttackModule = None
+        ModuleSetup = None
         missing.append("wifi") # Why would wifi be missing, thats the whole point of this
 
     # here lies a placeholder for ble_module.py
@@ -123,7 +123,7 @@ def cli_mode():
     try:
         # oooh now shutdown some kid's router, preferrably one in a ranked game
         print("\nSelect Module:")
-        if 'WiFiAttackModule' in globals() and WiFiAttackModule:
+        if 'ModuleSetup' in globals() and ModuleSetup:
             print("1. WiFi Attack Module")
         if 'HandshakeCaptureModule' in globals() and HandshakeCaptureModule:
             print("2. Handshake Capture Module")
@@ -134,10 +134,10 @@ def cli_mode():
         choice = input("\nModule: ").strip()
         
         if choice == "1" or choice.lower() == "wifi":
-            if 'WiFiAttackModule' not in globals() or not WiFiAttackModule:
+            if 'ModuleSetup' not in globals() or not ModuleSetup:
                 debug("critical", "WiFi module not loaded")
                 return False
-            wifi = WiFiAttackModule()
+            wifi = ModuleSetup()
             wifi.run()
             return False
         

