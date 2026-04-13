@@ -51,6 +51,7 @@ def startup():
     missing = [] # i wonder why its missing :D
     try: 
         from core.wifi_module import ModuleSetup
+        from core.probe_flood import probe_dos
         globals()['ModuleSetup'] = ModuleSetup
     except ImportError: 
         ModuleSetup = None
