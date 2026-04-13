@@ -156,7 +156,7 @@ def cli_mode():
             hc.run()
             return False
         
-        # like you have the iresp code anyway lmao
+        # like you have the iresp code anyway lmao, i never released it
         elif choice == "3" or choice.lower() == "iresp" or choice.lower() == "ir":
             if 'IRExplorer' not in globals() or not IRExplorer:
                 debug("critical", "IR Explorer module not loaded")
@@ -166,7 +166,7 @@ def cli_mode():
             return False
         
         elif choice == "0":
-            debug("info", "Exiting...")
+            debug("critical", "Exiting...")
             return True
         else:
             debug("error", "Invalid choice")
