@@ -202,11 +202,13 @@ class AttackModule:
             debug("warn", "Invalid input for pps, using default 1000")
             pps = 1000
         from core.probe_flood import probe_dos
-        debug("info", f"Starting Probe Flood DoS with {pps} pps... Press Ctrl+C to stop.")
+        debug("ok", f"Starting Probe Flood DoS with {pps} pps... Press Ctrl+C to stop.")
         try:
             probe_dos(interface, channel, pps)
         except KeyboardInterrupt:
             debug("info", "Probe Flood DoS interrupted by user")
+        except Exception as e:
+            debug("critical", f"Probe Flood DoS error: {e}")
 class ModuleSetup:
     def __init__(self):
         self.networks = {}
@@ -428,10 +430,15 @@ class ModuleSetup:
                 AttackModule.auth_dos(self.interface, chosen_bssid, channel)
             elif atkmode == "2" or atkmode.lower() == "michael countermeasures dos":
                 AttackModule.michael_mic_dos(self.interface, chosen_bssid, channel)
-            elif atkmode == "3" or atkmode.lower() == "probe flood dos":
-                AttackModule.probe_dos(self.interface, channel)
-            elif atkmode == "4" or atkmode.lower() == "deauth denial of service":
+            elif atkmode == "3" or atkmode.lower() == "deauth denial of service":
                 AttackModule.deauth_all(chosen_bssid, self.interface)
+            elif atkmode == "4" or atkmode.lower() == "probe flood dos":
+                try: channel = int(channel)
+                except (ValueError, TypeError): debug("warn", "Invalid channel detected. please enter channel manually")
+                while True:
+                    try: channel = int(input("Target Channel: ")); break
+                    except ValueError: debug("warn", "Still an Invalid channel")
+                AttackModule.probe_dos(self.interface, channel)
     def run(self):
         try:
             signal.signal(signal.SIGINT, self.signal_handler)
@@ -453,6 +460,7 @@ class ModuleSetup:
             elif mode == "2" or mode.lower() == "other attacks":
                 banner.other_attacks()
                 print("1. Network Flood")
+                print("2. Probe Flood DoS")
                 print("0. Back")
                 others = input("\nAttack Mode: ").strip()
 
@@ -460,8 +468,10 @@ class ModuleSetup:
                     return
                 elif others == "1" or others.lower() == "network flood":
                     AttackModule.access_point_flood(self, self.interface)
-                return
-
+                elif others == "2" or others.lower() == "probe flood dos":
+                    try: pchannel = int(input("Target Channel: "))
+                    except ValueError: debug("warn", "Invalid channel")
+                    AttackModule.probe_dos(self.interface, pchannel)
             # Normal mode with scan, youll enjoy these cause yes
             # now go have fun
             debug("info", "Scanning for networks using DUAL BAND mode...")
