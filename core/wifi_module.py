@@ -419,8 +419,8 @@ class ModuleSetup:
             print(f"\nAttack Modes Available:")
             print("1. Authentication Denial of Service")
             print("2. Michael Countermeasures DoS")
-            print("3. Probe Flood DoS")
-            print("4. Deauth Denial of Service")
+            print("3. Deauth Denial of Service")
+            print("4. Probe Flood DoS")
             print("0. Exit")
             atkmode = input("\nAttack Mode: ")
 
