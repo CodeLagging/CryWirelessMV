@@ -8,15 +8,15 @@ CryWirelessMV is a command line (soon to be gui) wireless network pentest tool w
 
 Scans nearby access points via dual-band channel hopping, then offers the following techniques against a chosen target:
 
-- **Deauthentication Flood** — Forcibly disconnects clients from their access point using spoofed deauth frames.
-- **Authentication Request Flood** — Overwhelms an access point with a high-volume stream of spoofed authentication attempts.
-- **Michael MIC (TKIP) Denial of Service** — Exploits the legacy TKIP countermeasure to force vulnerable access points offline.
+- **Deauthentication Flood** — Force disconnects devices from the access point using deauth frames.
+- **Authentication Request Flood** — Spam an access point with alot of fake authentication attempts.
+- **Michael MIC (TKIP) Denial of Service** — Exploits the legacy TKIP countermeasure to force access points offline.
 - **Probe Request Flood** — Floods a channel with probe traffic to test congestion handling.
-- **Beacon Flood** — Generates a swarm of fake networks to flood nearby wireless scanners with noise.
+- **Beacon Flood** — Generates alot of fake networks to flood scanners with fake APs.
 
 ### Handshake Capture Module
 
-Captures the WPA/WPA2 four-way handshake via deauthentication and EAPOL sniffing, then converts it directly into hashcat ready (22000) format for offline password auditing.
+Captures the WPA/WPA2 4way handshake via deauthentication and EAPOL sniffing, then converts it directly into hashcat ready (22000) format for offline password auditing.
 
 ### IR Explorer Module
 
