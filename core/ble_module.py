@@ -240,13 +240,13 @@ class BleModule:
             device = input("Device Type: ")
             if device.lower() == ('apple'):
                 devicetype = PayloadType.APPLE
-            elif device.lower()('microsoft'):
+            elif device.lower() == ('microsoft'):
                 devicetype = PayloadType.MICROSOFT
-            elif device.lower()('android'):
+            elif device.lower() == ('android'):
                 devicetype = PayloadType.GOOGLE
-            elif device.lower()('samsung'):
+            elif device.lower() == ('samsung'):
                 devicetype = PayloadType.SAMSUNG
-            elif device.lower()('flipperzero'):
+            elif device.lower() == ('flipperzero'):
                 devicetype = PayloadType.FLIPPERZERO
             else:
                 debug("error", "Invalid Device Type")
