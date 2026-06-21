@@ -6,7 +6,7 @@ from colorama import Fore, Style, init
 init()
 
 def startup():
-    global debug, banner, ModuleSetup, HandshakeCaptureModule, IRExplorer
+    global debug, banner, ModuleSetup, HandshakeCaptureModule, IRExplorer, BleModule
     
     # And here lies random shit i pulled from stackoverflow
     # that i changed a bit to make it work in this shit code i made
@@ -57,7 +57,12 @@ def startup():
         ModuleSetup = None
         missing.append("wifi") # Why would wifi be missing, thats the whole point of this
 
-    # here lies a placeholder for ble_module.py
+    try:
+        from core.ble_module import BleModule, PayloadType
+        globals()['BleModule'] = BleModule
+    except ImportError:
+        PayloadType = None
+        missing.append("ble")
     # here lies a placeholder for bt_module.py
     # they both fucking suck. removed.
     # leave no trace of that trash code.
@@ -79,7 +84,7 @@ def startup():
         IRExplorer = None
         missing.append("iresp") # do you even have the iresp? no cuz i never released it :D
     
-    if missing == ['wifi', 'handshake', 'iresp']: # why would you even have none. what are you doing.
+    if missing == ['wifi', 'handshake', 'iresp', "ble"]: # why would you even have none. what are you doing.
         debug("critical", "No attack modules available. Exiting.")
         exit(1)
     if missing:
@@ -99,7 +104,7 @@ def startup():
 def main():
     try:
         banner.check_os() # no there is no fucking windows or wsl support
-        wait(3)
+        wait(2)
         os.system("clear")
         banner.print_banner()
         
@@ -130,6 +135,8 @@ def cli_mode():
             print("2. Handshake Capture Module")
         if 'IRExplorer' in globals() and IRExplorer:
             print("3. IR Explorer Module")
+        if 'BleModule' in globals() and BleModule:
+            print("4. Ble Spam Module")
         print("0. Exit")
         
         choice = input("\nModule: ").strip()
@@ -141,12 +148,10 @@ def cli_mode():
             wifi = ModuleSetup()
             wifi.run()
             return False
-        
-        # here lies a placeholder for ble_module.py
+
         # here lies a placeholder for bt_module.py
-        # they both fucking suck. removed.
         
-        # does not use mdk4, so no its not on wifi_module.py
+        # does not use mdk4 anymore, so no its not on wifi_module.py
         # and i have no fucking idea why this is here
         elif choice == "2" or choice.lower() == "handshake":
             if 'HandshakeCaptureModule' not in globals() or not HandshakeCaptureModule:
@@ -164,7 +169,19 @@ def cli_mode():
             ir = IRExplorer()
             ir.run()
             return False
-        
+        elif choice == "4" or choice.lower() == "ble advertisement":
+            if 'BleModule' not in globals() or not BleModule:
+                debug("critical", "Ble Module not loaded")
+                return False
+            try:
+                hci = input("HCI Device: (e.g. 0, 1. 2, default 0)")
+                if not hci:
+                    hci = 0
+                ble = BleModule()
+                ble.run(hci)
+            except Exception as e:
+                debug("critical", e)
+            
         elif choice == "0":
             debug("critical", "Exiting...")
             return True

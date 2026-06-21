@@ -502,13 +502,7 @@ class ModuleSetup:
                 debug("ok", f"Selected BSSID: {chosen_bssid}")
                 debug("info", f"SSID: {chosen_ssid or '<Hidden>'}")
                 debug("info", f"Channel: {chosen_channel or '?'}")
-
-                startatk = input("\nStart Attack Mode? (y/n): ")
-                if startatk.lower() in ["y", "yes"]:
-                    debug("info", "Starting Attack Mode...")
-                    self.wifi_attack_menu(chosen_bssid, chosen_ssid)
-                else:
-                    debug("info", "Exiting...")
+                self.wifi_attack_menu(chosen_bssid, chosen_ssid)
         
         except KeyboardInterrupt:
             debug("warn", "Interrupted by user")
@@ -517,3 +511,4 @@ class ModuleSetup:
         finally:
             self.cleanup_monitor_mode()
             debug("ok", "WiFi module cleanup complete.")
+            
