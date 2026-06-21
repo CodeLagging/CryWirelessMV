@@ -261,9 +261,11 @@ class BleModule:
                     try:
                         payload = self.generate_payload(devicetype)
                         sock = self.advertise(payload)
+                        print(f"\rAdvertising {payload}...              ", end="", flush=True)
                         time.sleep(0.5)
                         self.stop_advertising(sock)
                     except KeyboardInterrupt:
+                        debug("info", "\nKeyboard Interrupt detected, stopping spam...")
                         break
 
             elif mode == "delayed":
