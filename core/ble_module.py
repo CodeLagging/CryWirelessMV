@@ -83,13 +83,7 @@ class BleModule:
         ])
 
         data += bytes(random.randint(0, 255) for _ in range(3))
-        name = "null-null"
-        name_bytes = name.encode("ascii")
-        name_field = bytes([
-            len(name_bytes) + 1,  # length = type + data
-            0x09                  # Complete Local Name
-        ]) + name_bytes
-        return bytes(data) + name_field
+        return bytes(data)
 
     def _gen_samsung(self):
         model = random.choice(self.SAMSUNG_WATCH_MODEL_VALUES)
