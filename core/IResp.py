@@ -593,6 +593,6 @@ class IRExplorer:
 
 
 if __name__ == "__main__":
-    debug("info", "CryWireless V2 - IR Explorer Module")
+    debug("info", "CryWireless V6 - IR Explorer Module")
     explorer = IRExplorer()
     explorer.run()

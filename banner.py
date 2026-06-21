@@ -20,7 +20,7 @@ def print_banner():
 ║  ╚██████╗██║  ██║   ██║         ╚███╔███╔╝██║██║     ██║  ║
 ║   ╚═════╝╚═╝  ╚═╝   ╚═╝          ╚══╝╚══╝ ╚═╝╚═╝     ╚═╝  ║
 ║                                                           ║
-║                      Version 2.0                          ║
+║                      Version 6.0                          ║
 ║            WiFi & BLE Penetration Testing Tool            ║
 ║                 Created By - CodeLagging                  ║
 ╚═══════════════════════════════════════════════════════════╝
@@ -29,7 +29,7 @@ def print_banner():
 
 def bluetooth():
     print("\n╔═════════════════════════════════════════════════════════════════════════╗")
-    print("║                    CryWireless V2 - Bluetooth Scanner                   ║")
+    print("║                    CryWireless V6 - Bluetooth Scanner                   ║")
     print("╚═════════════════════════════════════════════════════════════════════════╝")
 
 def scan_results():
@@ -39,12 +39,12 @@ def scan_results():
 
 def ble_menu():
     print("\n╔════════════════════════════════════════════════════════╗")
-    print("║          CryWireless V2 - BLE Attack Module            ║")
+    print("║          CryWireless V6 - BLE Attack Module            ║")
     print("╚════════════════════════════════════════════════════════╝")
 
 def wifi_attack():
     print("\n╔════════════════════════════════════════════════════════╗")
-    print("║            CryWireless V2 - Attack Mode                ║")
+    print("║            CryWireless V6 - Attack Mode                ║")
     print("╚════════════════════════════════════════════════════════╝")
 
 def other_attacks():
