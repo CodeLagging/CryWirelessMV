@@ -48,7 +48,9 @@ pip3 install -r requirements.txt
 ```
 
 If you use raspberry pi or any arm64 systems, use the one in ``for-aarch64`` folder or ``mv ./for-aarch64 ./core``
+
 If you use x64/amd64 then you should be good, the binary on ``core/`` is already a x64 version!
+
 For IR usage: Flash the ``IResp.bin`` to a normal esp32 on addr 0x10000
 
 ## Usage
