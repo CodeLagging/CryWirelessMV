@@ -13,7 +13,7 @@ WiFi & BLE penetration testing for authorized security research.
 
 - Linux (debian is fun)
 - Python 3.10+
-- Root/sudo privileges (for monitor mode, raw sockets, and HCI access ofc)
+- Root/sudo privileges (for monitor mode, and HCI access ofc)
 - A WiFi adapter that supports monitor mode (for WiFi modules)
 - A Bluetooth adapter (for BLE module)
 
@@ -48,6 +48,9 @@ pip3 install -r requirements.txt
 ```
 
 If you use raspberry pi or any arm64 systems, use the one in ``for-aarch64`` folder or ``mv ./for-aarch64 ./core``
+If you use x64/amd64 then you should be good, the binary on ``core/`` is already a x64 version!
+For IR usage: Flash the ``IResp.bin`` to a normal esp32 on addr 0x10000
+
 ## Usage
 
 ```bash
@@ -68,8 +71,6 @@ The author(s) and contributors of this project:
 - Take **no responsibility** for any misuse of this software
 - Provide this tool **"as is"**, without warranty of any kind
 - Do **not condone** illegal use of this tool in any form
-
-**By using this software, you agree that you are solely responsible for ensuring your use complies with all applicable local, state, and federal laws.**
 
 **For educational purposes only.**
 
