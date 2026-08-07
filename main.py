@@ -1,82 +1,78 @@
 # main.py
 import os
 import sys
+from core.set_path import paths
+path = os.getcwd()
+paths(root_dir=path) # just incase lmao
+
 from time import sleep as wait
 from colorama import Fore, Style, init
 init()
 
+
+def _maybe_launch_aphc_web(flag=None):
+    if flag is None:
+        flag = os.environ.get("CWMV_APHC_WEB", "")
+    if str(flag).lower() in {"1", "true", "yes", "web", "aphc-web"}:
+        from core.APHC import launch_web_control
+        launch_web_control()
+        return True
+    return False
+
 def startup():
-    global debug, banner, ModuleSetup, HandshakeCaptureModule, IRExplorer, BleModule
-    
-    # And here lies random shit i pulled from stackoverflow
-    # that i changed a bit to make it work in this shit code i made
-    # to make it work on sudo or venv cuz it dosent
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    core_dir = os.path.join(script_dir, 'core')
-    core_path = os.path.abspath(core_dir)
-    script_path = os.path.abspath(script_dir)
-    for path in [core_path, script_path]:
-        if path not in sys.path:
-            sys.path.insert(0, path)
-    venv_path = os.path.join(script_dir, 'venv')
-    if os.path.exists(venv_path) and os.geteuid() == 0:  # Running as root (sudo)
-        venv_site_packages = os.path.join(venv_path, 'lib')
-        if os.path.exists(venv_site_packages):
-            for lib_dir in os.listdir(venv_site_packages):
-                site_pkg = os.path.join(venv_site_packages, lib_dir, 'site-packages')
-                if os.path.exists(site_pkg) and site_pkg not in sys.path:
-                    sys.path.insert(0, site_pkg)
-    existing_pythonpath = os.environ.get('PYTHONPATH', '')
-    additional_paths = os.pathsep.join([core_path, script_path])
-    if existing_pythonpath:
-        os.environ['PYTHONPATH'] = f"{additional_paths}{os.pathsep}{existing_pythonpath}"
-    else:
-        os.environ['PYTHONPATH'] = additional_paths
-    # AND IT STILL DOSENT WORK (or maybe it does)
-
-
-    # Is there even a better way to do this?
-    # cuz i know this is type shit
+    global debug, banner, ModuleSetup, HandshakeCaptureModule, IRExplorer, BleModule, bluetooth, Scanner, ScannerAP
     try:
         import banner
         from debugs import debug
         debug("info", "Core Modules Loaded")
-        if os.path.exists(core_dir):
-            debug("ok", f"Core directory: {core_dir}")
     # Cool fallback cuz theres always one broken installation on someone's system
     except ImportError as critical:
         print(f"{Fore.RED}[CRITICAL]: Core Module {critical.name}.py is missing{Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}[WARN]: See Error: {critical}")
         exit(1)
     
     missing = [] # i wonder why its missing :D
     try: 
         from core.wifi_module import ModuleSetup
-        from core.probe_flood import probe_dos
+        from core.WIFI import probe_dos
         globals()['ModuleSetup'] = ModuleSetup
     except ImportError: 
         ModuleSetup = None
         missing.append("wifi") # Why would wifi be missing, thats the whole point of this
 
     try:
-        from core.ble_module import BleModule, PayloadType
+        from core.BT_HCI.ble_module import BleModule
         globals()['BleModule'] = BleModule
     except ImportError:
-        PayloadType = None
+        BleModule = None
         missing.append("ble")
-    # here lies a placeholder for bt_module.py
-    # they both fucking suck. removed.
-    # leave no trace of that trash code.
-
-    # hmm shouldnt i just make it disabled by default
-    # instead of removing? nah they both still suck asf
-    
+    try:
+        from core.BT_HCI.bluetooth import bluetooth
+        globals()['bluetooth'] = bluetooth
+    except ImportError:
+        bluetooth = None
+        missing.append("bluetooth") # bluetooth is optional, but its nice to have
     try: 
-        from core.handshake_module import HandshakeCaptureModule
+        from core.WIFI import HandshakeCaptureModule
         globals()['HandshakeCaptureModule'] = HandshakeCaptureModule
     except ImportError: 
         HandshakeCaptureModule = None
         missing.append("handshake") # youll love this, dont leave it
     
+    try:
+        from core.WIFI.scanner import Scanner
+        globals()['Scanner'] = Scanner
+    except ImportError:
+        Scanner = None
+        missing.append("scanner") # scanner is optional, but its nice to have
+    
+    try:
+        from core.APCC.scanner_ap import ScannerAP
+        globals()['ScannerAP'] = ScannerAP
+    except ImportError:
+        ScannerAP = None
+        missing.append("scanner_ap") # ooh this is cool
+
     try: 
         from core.IResp import IRExplorer
         globals()['IRExplorer'] = IRExplorer
@@ -84,7 +80,9 @@ def startup():
         IRExplorer = None
         missing.append("iresp") # do you even have the iresp? no cuz i never released it :D
     
-    if missing == ['wifi', 'handshake', 'iresp', "ble"]: # why would you even have none. what are you doing.
+    missing_set = set(missing)
+    required_modules = {"wifi", "handshake", "iresp", "ble"}
+    if required_modules.issubset(missing_set):
         debug("critical", "No attack modules available. Exiting.")
         exit(1)
     if missing:
@@ -93,8 +91,9 @@ def startup():
             debug("warn", f"Core Module '{i}' unavailable.")
     else: debug("ok", "All modules loaded")
     
-    # oh why would you want to quit? go back and shutdown some random wifi
-    # preferrably one with people playing ranked games :D
+    if _maybe_launch_aphc_web(os.environ.get("CWMV_APHC_WEB", "")):
+        return True
+
     should_exit = main()
     return should_exit
 
@@ -107,6 +106,10 @@ def main():
         wait(2)
         os.system("clear")
         banner.print_banner()
+        if os.geteuid() != 0:
+            debug("critical", "Not running as sudo, could not start")
+            exit(1)
+        
         
         # Main menu loop
         while True:
@@ -122,21 +125,31 @@ def main():
         return False
 
 
-
 # Just cuz its named cli_mode doesnt mean ill add a "gui_mode" later.
 # i tried before, its a nightmare. never touhing that again.
 def cli_mode():
     try:
-        # oooh now shutdown some kid's router, preferrably one in a ranked game
         print("\nSelect Module:")
         if 'ModuleSetup' in globals() and ModuleSetup:
             print("1. WiFi Attack Module")
+        else: print(f"{Fore.RED}1. WiFi Attack Module{Style.RESET_ALL}")
         if 'HandshakeCaptureModule' in globals() and HandshakeCaptureModule:
             print("2. Handshake Capture Module")
+        else: print(f"{Fore.RED}2. Handshake Capture Module{Style.RESET_ALL}")
+        if 'Scanner' in globals() and Scanner:
+            print("3. PacketScanner Module")
+        else: print(f"{Fore.RED}3. Packet Scanner Module{Style.RESET_ALL}")
+        if 'ScannerAP' in globals() and ScannerAP:
+            print("4. APCC Module")
+        else: print(f"{Fore.RED}4. APCC Control Module{Style.RESET_ALL}")
         if 'IRExplorer' in globals() and IRExplorer:
-            print("3. IR Explorer Module")
+            print("5. IR Explorer Module")
+        else: print(f"{Fore.RED}5. IR Explorer Module{Style.RESET_ALL}")
         if 'BleModule' in globals() and BleModule:
-            print("4. Ble Spam Module")
+            print("6. Ble Spam Module")
+        if 'bluetooth' in globals() and bluetooth:
+            print("7. Bluetooth Scanner Module")
+        else: print(f"{Fore.RED}7. Bluetooth Scanner Module{Style.RESET_ALL}")
         print("0. Exit")
         
         choice = input("\nModule: ").strip()
@@ -149,10 +162,6 @@ def cli_mode():
             wifi.run()
             return False
 
-        # here lies a placeholder for bt_module.py
-        
-        # does not use mdk4 anymore, so no its not on wifi_module.py
-        # and i have no fucking idea why this is here
         elif choice == "2" or choice.lower() == "handshake":
             if 'HandshakeCaptureModule' not in globals() or not HandshakeCaptureModule:
                 debug("critical", "Handshake Capture module not loaded")
@@ -161,15 +170,35 @@ def cli_mode():
             hc.run()
             return False
         
+        # ooh this is new
+        elif choice == "3" or choice.lower() == "scanner":
+            if 'Scanner' not in globals() or not Scanner:
+                debug("critical", "Scanner module not loaded")
+                return False
+            interface = input("Interface to use (wlanX): ")
+            scan = Scanner(iface=interface, savepath="./SCAN_scanner")
+            scan.run()
+            return False
+        
+        elif choice == "4" or choice.lower() == "APCC Module" or choice.lower() == "apcc":
+            if 'ScannerAP' not in globals() or not ScannerAP:
+                debug("critical", "AP Inspector module not loaded")
+                return False
+            interface = input("Interface to use (wlanX): ")
+            scan = ScannerAP(iface=interface, savepath="./SCAN_inspector")
+            scan.run()
+            return False
+        
         # like you have the iresp code anyway lmao, i never released it
-        elif choice == "3" or choice.lower() == "iresp" or choice.lower() == "ir":
+        elif choice == "5" or choice.lower() == "iresp" or choice.lower() == "ir":
             if 'IRExplorer' not in globals() or not IRExplorer:
                 debug("critical", "IR Explorer module not loaded")
                 return False
             ir = IRExplorer()
             ir.run()
             return False
-        elif choice == "4" or choice.lower() == "ble advertisement":
+        
+        elif choice == "6" or choice.lower() == "ble advertisement":
             if 'BleModule' not in globals() or not BleModule:
                 debug("critical", "Ble Module not loaded")
                 return False
@@ -177,18 +206,31 @@ def cli_mode():
                 hci = input("HCI Device: (e.g. 0, 1. 2, default 0)")
                 if not hci:
                     hci = 0
+                try:
+                    int(hci)
+                except ValueError:
+                    debug("warn", "Invalid HCI device, defaulting to 0")
+                    hci = 0
                 ble = BleModule()
                 ble.run(hci)
             except Exception as e:
                 debug("critical", e)
-            
+        elif choice.lower() == "7" or choice.lower() == "bluetooth":
+            if 'bluetooth' not in globals() or not bluetooth:
+                debug("critical", "Bluetooth module not loaded")
+                return False
+            bt = bluetooth()
+            bt.run()
+        elif choice.lower() == "module":
+            debug("debug", "Not sure what you want, goodbye")
+            sys.exit(0)
         elif choice == "0":
             debug("critical", "Exiting...")
             return True
         else:
             debug("error", "Invalid choice")
             return False
-    
+        
     except KeyboardInterrupt:
         debug("warn", "Interrupted by user")
         return False
@@ -197,4 +239,8 @@ def cli_mode():
         return False
 
 if __name__ == "__main__":
-    startup()
+    if len(sys.argv) > 1 and sys.argv[1].lower() in {"--aphc-web", "--web", "-w"}:
+        from core.APHC import launch_web_control
+        launch_web_control()
+    else:
+        startup()

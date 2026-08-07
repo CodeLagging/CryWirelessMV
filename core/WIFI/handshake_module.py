@@ -14,17 +14,7 @@ if parent_dir not in sys.path:
 
 from debugs import debug
 
-LCD_AVAILABLE = False
-try:
-    from core.LCD_Module import display_message, clear_display
-    LCD_AVAILABLE = True
-except ImportError:
-    try:
-        from LCD_Module import display_message, clear_display
-        LCD_AVAILABLE = True
-    except ImportError:
-        display_message = lambda msg, row, duration=None: None
-        clear_display = lambda: None
+
 
 class HandshakeCaptureModule:
     def __init__(self):
@@ -144,11 +134,7 @@ class HandshakeCaptureModule:
                     
                     client = addr2 if addr1.upper() == self.target_bssid else addr1
                     debug("ok", f"EAPOL packet {self.eapol_count}/4 captured from {client.upper()[:8]}...")
-                    
-                    if LCD_AVAILABLE:
-                        clear_display()
-                        display_message("EAPOL Captured", 0)
-                        display_message(f"   {self.eapol_count}/4 packets ", 1)
+                
                     
                     if self.eapol_count >= 4:
                         self.stop_sniff = True
@@ -202,11 +188,6 @@ class HandshakeCaptureModule:
         self.stop_sniff = False
         self.scan_threads = []
         
-        if LCD_AVAILABLE:
-            clear_display()
-            display_message("  Scanning... ", 0)
-            display_message(" Dual Band Mode ", 1)
-        
         channels_24 = list(range(1, 14))
         channels_5 = [36, 40, 44, 48, 52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144, 149, 153, 157, 161, 165]
         channels = channels_24 + channels_5
@@ -230,10 +211,6 @@ class HandshakeCaptureModule:
 
     def send_deauth_continuous(self, bssid, channel):
         debug("info", "Starting continuous deauth...")
-        if LCD_AVAILABLE:
-            clear_display()
-            display_message("Continuous", 0)
-            display_message("   Deauth... ", 1)
         
         self.set_channel(channel)
         time.sleep(0.5)
@@ -265,10 +242,6 @@ class HandshakeCaptureModule:
     def capture_handshake(self, bssid, channel):
         debug("info", "Starting handshake capture...")
         debug("info", "Listening for EAPOL packets...")
-        if LCD_AVAILABLE:
-            clear_display()
-            display_message("Capturing HSK", 0)
-            display_message("  Listening... ", 1)
         
         self.target_bssid = bssid
         self.handshake_packets = []
@@ -329,47 +302,22 @@ class HandshakeCaptureModule:
         
         if self.eapol_count >= 4 and self.beacon_captured:
             debug("ok", "Full handshake captured with Beacon!")
-            if LCD_AVAILABLE:
-                clear_display()
-                display_message("HSK Captured!", 0)
-                display_message("   Complete!   ", 1)
-                time.sleep(2)
             return True
         elif self.eapol_count >= 4 and not self.beacon_captured:
             debug("warn", "EAPOL captured but missing Beacon frame")
             debug("info", "Handshake may not convert properly")
-            if LCD_AVAILABLE:
-                clear_display()
-                display_message("HSK Incomplete", 0)
-                display_message(" No Beacon!  ", 1)
-                time.sleep(2)
             return False
         elif self.eapol_count > 0:
             debug("warn", f"Only captured {self.eapol_count}/4 EAPOL packets")
             debug("info", "Try again or move closer to the AP")
-            if LCD_AVAILABLE:
-                clear_display()
-                display_message("HSK Incomplete", 0)
-                display_message(f"   {self.eapol_count}/4 pkts   ", 1)
-                time.sleep(2)
             return False
         else:
             debug("error", "No EAPOL packets captured")
             debug("info", "Check if clients are connected or try a different network")
-            if LCD_AVAILABLE:
-                clear_display()
-                display_message("  No EAPOL   ", 0)
-                display_message("   Captured   ", 1)
-                time.sleep(2)
             return False
 
     def packets_to_hashcat(self, ssid, bssid):
         try:
-            if LCD_AVAILABLE:
-                clear_display()
-                display_message("Converting to", 0)
-                display_message("Hashcat Format", 1)
-            
             temp_cap = "/tmp/handshake_temp.cap"
             wrpcap(temp_cap, self.handshake_packets)
             
@@ -386,26 +334,15 @@ class HandshakeCaptureModule:
                 os.remove("/tmp/handshake.hc22000")
                 os.remove(temp_cap)
                 
-                if LCD_AVAILABLE:
-                    display_message("Conversion", 0)
-                    display_message("  Success!   ", 1)
-                    time.sleep(2)
+
                 
                 return hashcat_string
             else:
                 debug("error", "Failed to convert to hashcat format")
-                if LCD_AVAILABLE:
-                    display_message("Conversion", 0)
-                    display_message("   Failed!   ", 1)
-                    time.sleep(2)
                 return None
                 
         except Exception as e:
             debug("error", f"Conversion error: {e}")
-            if LCD_AVAILABLE:
-                display_message("Conversion Err", 0)
-                display_message("  Check Log   ", 1)
-                time.sleep(2)
             return None
 
     def run(self):
@@ -424,17 +361,7 @@ class HandshakeCaptureModule:
             self.start_channel_hop_scan()
             if not self.networks:
                 debug("critical", "No networks found")
-                if LCD_AVAILABLE:
-                    display_message(" No Networks ", 0)
-                    display_message("    Found!    ", 1)
-                    time.sleep(2)
                 return
-            
-            if LCD_AVAILABLE:
-                clear_display()
-                display_message(f"{len(self.networks)} Networks", 0)
-                display_message("     Found!    ", 1)
-                time.sleep(2)
             
             print("\nNetworks found:")
             for i, (bssid, info) in enumerate(self.networks.items(), 1):
@@ -450,14 +377,6 @@ class HandshakeCaptureModule:
 
             debug("ok", f"Target: {chosen_ssid or '<Hidden>'} ({chosen_bssid})")
             debug("info", f"Channel: {chosen_channel}")
-            
-            if LCD_AVAILABLE:
-                clear_display()
-                ssid_display = (chosen_ssid or "Hidden")[:16]
-                display_message(ssid_display.center(16), 0)
-                display_message(f"Ch:{chosen_channel}".center(16), 1)
-                time.sleep(3)
-            
             if self.capture_handshake(chosen_bssid, chosen_channel):
                 hashcat_string = self.packets_to_hashcat(chosen_ssid, chosen_bssid)
                 
@@ -467,7 +386,6 @@ class HandshakeCaptureModule:
                     print("="*60)
                     print(hashcat_string)
                     print("="*60)
-                    
                     save = input("\nSave to file? (y/n): ")
                     if save.lower() in ["y", "yes"]:
                         filename = input("Filename (default: handshake.hc22000): ").strip() or "handshake.hc22000"
