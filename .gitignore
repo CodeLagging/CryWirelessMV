@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+*.spec
+
+# Environments
+.venv/
+venv/
+.env
+
+# Caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Editor
+.vscode/
+.idea/
+
+# Compiled / bundled deps
+scannerap/
+scannerap_deps/
+core/APCC/scannerap_deps/
+for-aarch64/
+*.so
+IResp.bin
+
+# Release artifacts
+CryWireless*.zip
+
+# Runtime output
+SCAN_inspector/
+wifi_scans/
+ap_sessions/
+*.cap
+*.pcap
+*.hc22000
+*.22000
+
+# Build helpers (dev-only)
+.Stuffs/
+
+# Local config
+ir_explorer.conf
+core/ir_explorer.conf
+comment_backup

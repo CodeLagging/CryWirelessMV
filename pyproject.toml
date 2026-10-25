@@ -1,0 +1,39 @@
+[project]
+name = "cwmv-development"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "CodeLagging", email = "thedevjared@lagging.stream" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "colorama==0.4.6",
+    "future==1.0.0",
+    "iso8601==2.1.0",
+    "pyinstaller==5.13.0",
+    "pyperclip==1.11.0",
+    "pyserial==3.5",
+    "pyyaml==6.0.3",
+    "scapy==2.7.0",
+    "setuptools>=84.2.1",
+]
+
+[project.scripts]
+cwmv-development = "cwmv_development:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "ruff>=0.17.2",
+]
+[tool.uv]
+package = false
+
+[project.optional-dependencies]
+build = [
+    "pyinstaller>=5.13",
+    "setuptools>=68",
+]
+[tool.ruff]
+extend-exclude = ["*.so"]
