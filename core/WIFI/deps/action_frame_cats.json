@@ -1,0 +1,62 @@
+{
+  "0":  {"short": "Spectrum Meas Req",        "desc": "Spectrum Management Measurement Request (category 0, action 0). Asks the target to measure a channel and report back. Low hit rate on modern supplicants; mostly airtime noise.", "tier": "red"},
+  "1":  {"short": "TPC Request",              "desc": "Transmit Power Control Request (category 0, action 1). Asks the target to report its transmit power. Very rarely honored; useful only as a fingerprinting probe.", "tier": "red"},
+  "2":  {"short": "Spectrum Channel Switch",  "desc": "Spectrum Management Channel Switch Announcement (category 0, action 4). Beacon CSA delivered as an action frame. Some clients only parse the action form.", "tier": "yellow"},
+  "3":  {"short": "GAS Initial Req (ANQP)",   "desc": "Public Action (category 4, action 10) — GAS Initial Request with an ANQP Venue Name query. Loads the AP's management plane if aimed at the AP; low impact if aimed at a client.", "tier": "yellow"},
+  "4":  {"short": "GAS Comeback Req",         "desc": "Public Action (category 4, action 11) — GAS Comeback Request. Resumes a fragmented GAS exchange. Flooded against an AP it never queried is mostly noise.", "tier": "red"},
+  "5":  {"short": "Ext Channel Switch",       "desc": "Public Action (category 4, action 4) — Extended Channel Switch Announcement as an action frame. Same effect as beacon CSA but wrapped differently; hits clients that reject beacon CSA.", "tier": "yellow"},
+  "6":  {"short": "TDLS Discovery Resp",      "desc": "Public Action (category 4, action 14) — TDLS Discovery Response. Only meaningful between two STAs; ignored by APs.", "tier": "red"},
+  "7":  {"short": "Radio Meas Req",           "desc": "Radio Measurement Request (category 5, action 0) with a Beacon Measurement subtype. Wastes client radio time; occasionally triggers reassociation on stale results.", "tier": "yellow"},
+  "8":  {"short": "Link Meas Req",            "desc": "Radio Measurement Request (category 5, action 0) with a Link Measurement subtype. Asks the client to measure the AP's signal quality. Low disruption; fingerprint value only.", "tier": "red"},
+  "9":  {"short": "Neighbor Report Req",      "desc": "Radio Measurement Request (category 5, action 0) with a Neighbor Report subtype. Forces the AP to enumerate neighbors; small mgmt-plane load.", "tier": "yellow"},
+  "10": {
+    "short": "FT Auth Req",
+    "desc": "Fast BSS Transition Auth Request (category 6, action 1). 802.11r FT authentication. Pick a variant below.",
+    "tier": "yellow",
+    "variants": {
+      "basic": {"short": "FT Auth (minimal)",   "desc": "Minimal FT Auth Request: algo/seq/status + stub FTE + stub MIE. Broadest compatibility, weakest parse-through.", "tier": "yellow"},
+      "full":  {"short": "FT Auth (MDE + FTE)", "desc": "FT Auth Request with a proper Mobility Domain Element and a fuller FTE structure. Gets past stricter parsers that reject malformed FTEs.", "tier": "yellow"}
+    }
+  },
+  "11": {"short": "FT Action Req",            "desc": "Fast BSS Transition Action Request (category 6, action 2). Pre-roam neighbor query. Abused to make a client prepare a roam to a dead BSSID.", "tier": "yellow"},
+  "12": {"short": "SA Query Req (PMF)",       "desc": "SA Query Request (category 8, action 0). PMF-specific path that still reaches clients on 802.11w networks — forged requests confuse some supplicants into dropping the link, bypassing the usual deauth block.", "tier": "green"},
+  "13": {"short": "SA Query Resp",            "desc": "SA Query Response (category 8, action 1). Normally the client's reply. Spoofed responses to a real SA Query can make the AP think the client is a MitM and drop it.", "tier": "yellow"},
+  "14": {
+    "short": "BTM Request",
+    "desc": "WNM BSS Transition Management Request (category 10, action 7). Makes 802.11v-capable clients roam away from the real AP. Pick a variant below.",
+    "tier": "green",
+    "variants": {
+      "basic":    {"short": "BTM basic",             "desc": "Single forged neighbor pointing to a fake BSSID on channel 1. Simplest form.", "tier": "green"},
+      "multi":    {"short": "BTM multi-neighbor",    "desc": "2-3 forged neighbors on random common channels. Matches the shape of real enterprise BTM Requests — highest hit rate on modern clients.", "tier": "green"},
+      "disassoc": {"short": "BTM + disassoc timer",  "desc": "BTM Request with the Disassociation Imminent bit and a 10 TU timer. Forces clients that honor BTM to leave fast.", "tier": "green"}
+    }
+  },
+  "15": {"short": "BTM Query",                "desc": "WNM BSS Transition Management Query (category 10, action 6). Client asking the AP for BTM candidates. Spoofed against an AP is mostly noise; spoofed against a client confuses its BTM state.", "tier": "red"},
+  "16": {"short": "BTM Response",             "desc": "WNM BSS Transition Management Response (category 10, action 8). Normally the client's reply to a BTM Request. Spoofed to an AP it can desynchronize the AP's view of the client's roam state.", "tier": "yellow"},
+  "17": {"short": "Channel Usage Req",        "desc": "WNM Channel Usage Request (category 10, action 9). Asks the client to report channel occupancy. Rarely honored outside enterprise gear.", "tier": "red"},
+  "18": {"short": "WNM Sleep Mode Req",       "desc": "WNM Sleep Mode Request (category 10, action 1). Tells a client to enter a WNM-sleep state. Forged against a client can park it in sleep mode, silently dropping its traffic. Unicast is far more effective than broadcast.", "tier": "green"},
+  "19": {"short": "WNM Sleep Mode Resp",      "desc": "WNM Sleep Mode Response (category 10, action 2). Client's reply to a sleep request. Spoofed to the AP to fake sleep-state changes.", "tier": "red"},
+  "20": {"short": "WNM Timing Meas Req",      "desc": "WNM Timing Measurement Request (category 10, action 16). Used for fine timing measurement (802.11mc ranging). Flooding it wastes client radio cycles.", "tier": "yellow"},
+  "21": {"short": "DLS Request",              "desc": "Direct Link Setup Request (category 2, action 0). Predecessor to TDLS. Only meaningful between two STAs on the same BSS; ignored elsewhere.", "tier": "red"},
+  "22": {"short": "DLS Teardown",             "desc": "Direct Link Setup Teardown (category 2, action 2). Tear down a DLS link between two STAs. Rare; very few modern devices use DLS.", "tier": "red"},
+  "23": {"short": "Block Ack Action",         "desc": "Block Ack Action (category 3, actions 0-3). Setup/teardown of block-ack sessions. Forged ones can disrupt QoS stream aggregation on the target.", "tier": "yellow"},
+  "24": {"short": "HT Notify Width",          "desc": "HT Action (category 7, action 0) — Notify Channel Width. Tells the peer to change HT channel width. Forged frames can force a client into a narrower channel.", "tier": "yellow"},
+  "25": {"short": "HT SM Power Save",         "desc": "HT Action (category 7, action 1) — SM Power Save. Puts the peer into spatial-multiplexing power save. Forged against a client reduces its MIMO capability.", "tier": "yellow"},
+  "26": {"short": "Mesh Path Req",            "desc": "Mesh Action (category 12, action 0) — HWMP Path Request. Only meaningful on 802.11s mesh. Rare in consumer deployments.", "tier": "red"},
+  "27": {"short": "Mesh Peering Open",        "desc": "Mesh Action (category 12, action 1) — Mesh Peering Open. Mesh-only; can desynchronize peering state on mesh nodes.", "tier": "red"},
+  "28": {"short": "Mesh Peering Confirm",     "desc": "Mesh Action (category 12, action 2) — Mesh Peering Confirm. Mesh-only.", "tier": "red"},
+  "29": {"short": "Mesh Peering Close",       "desc": "Mesh Action (category 12, action 3) — Mesh Peering Close. Mesh-only; can tear down established mesh links.", "tier": "red"},
+  "30": {"short": "Self-Protected Action",    "desc": "Self-Protected Action (category 14, action 0). Protected action frames used in mesh/PMF contexts. Rarely seen outside specific mesh setups.", "tier": "red"},
+  "31": {"short": "DMG Beacon",               "desc": "DMG Action (category 15). Directional multi-gigabit (60 GHz / 802.11ad) beacon actions. Only relevant to wigig devices.", "tier": "red"},
+  "32": {
+    "short": "Vendor Specific",
+    "desc": "Vendor-Specific Action (category 127). Payload interpretation depends on the OUI. Pick a vendor below.",
+    "tier": "yellow",
+    "variants": {
+      "generic":  {"short": "Vendor (rotating OUI)", "desc": "Rotates OUIs across Cisco/Aruba/Ubiquiti/generic on every frame. Widest coverage against unknown APs.", "tier": "yellow"},
+      "cisco":    {"short": "Cisco OUI",             "desc": "Fixed Cisco OUI (00:00:0c). Reaches proprietary Cisco handlers if the target is Cisco.", "tier": "yellow"},
+      "aruba":    {"short": "Aruba OUI",             "desc": "Fixed Aruba OUI (00:1a:1e). Reaches Aruba/HP enterprise handlers.", "tier": "yellow"},
+      "ubiquiti": {"short": "Ubiquiti OUI",          "desc": "Fixed Ubiquiti OUI (00:0f:e8). Reaches UniFi handlers.", "tier": "yellow"}
+    }
+  }
+}
