@@ -14,7 +14,7 @@ from colorama import Fore, Style, init
 init()
 
 def startup():
-    global debug, banner, ModuleSetup, HandshakeCaptureModule, IRExplorer, BleModule, bluetooth, Scanner, ScannerAP
+    global debug, banner, ModuleSetup, HandshakeCaptureModule, BleModule, bluetooth, Scanner, ScannerAP
     try:
         import banner
         from debugs import debug
@@ -65,16 +65,9 @@ def startup():
     except ImportError:
         ScannerAP = None
         missing.append("scanner_ap") # ooh this is cool
-
-    try: 
-        from core.iresp import IRExplorer
-        globals()['IRExplorer'] = IRExplorer
-    except ImportError: 
-        IRExplorer = None
-        missing.append("iresp") # do you even have the iresp? no cuz i never released it :D
     
     missing_set = set(missing)
-    required_modules = {"wifi", "handshake", "iresp", "ble"}
+    required_modules = {"wifi", "handshake", "ble"}
     if required_modules.issubset(missing_set):
         debug("critical", "No attack modules available. Exiting.")
         sys.exit(1)
@@ -139,14 +132,11 @@ def cli_mode():
         if 'ScannerAP' in globals() and ScannerAP:
             print("4. APCC Module")
         else: print(f"{Fore.RED}4. APCC Control Module{Style.RESET_ALL}")
-        if 'IRExplorer' in globals() and IRExplorer:
-            print("5. IR Explorer Module")
-        else: print(f"{Fore.RED}5. IR Explorer Module{Style.RESET_ALL}")
         if 'BleModule' in globals() and BleModule:
-            print("6. Ble Spam Module")
+            print("5. Ble Spam Module")
         if 'bluetooth' in globals() and bluetooth:
-            print("7. Bluetooth Scanner Module")
-        else: print(f"{Fore.RED}7. Bluetooth Scanner Module{Style.RESET_ALL}")
+            print("6. Bluetooth Scanner Module")
+        else: print(f"{Fore.RED}6. Bluetooth Scanner Module{Style.RESET_ALL}")
         print("0. Exit")
         
         choice = input("\nModule: ").strip()
@@ -184,14 +174,6 @@ def cli_mode():
             interface = input("Interface to use (wlanX): ")
             scan = ScannerAP(iface=interface, savepath="./SCAN_inspector")
             scan.run()
-            return False
-        
-        elif choice == "5" or choice.lower() == "iresp" or choice.lower() == "ir":
-            if 'IRExplorer' not in globals() or not IRExplorer:
-                debug("critical", "IR Explorer module not loaded")
-                return False
-            ir = IRExplorer()
-            ir.run()
             return False
         
         elif choice == "6" or choice.lower() == "ble advertisement":
