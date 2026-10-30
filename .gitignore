@@ -47,3 +47,7 @@ ap_sessions/
 ir_explorer.conf
 core/ir_explorer.conf
 comment_backup
+# Coverage artifacts
+.coverage
+htmlcov/
+.pytest_cache/

@@ -28,3 +28,13 @@ def test_readme_exists():
 
 def test_gitignore_exists():
     assert os.path.isfile(os.path.join(ROOT_DIR, ".gitignore")), "No .gitignore found!"
+
+def test_security_policy_exists():
+    assert os.path.isfile(os.path.join(ROOT_DIR, "SECURITY.md")), "No SECURITY.md found!"
+
+def test_changelog_exists():
+    assert os.path.isfile(os.path.join(ROOT_DIR, "CHANGELOG.md")), "No CHANGELOG.md found!"
+
+def test_dependabot_config_exists():
+    path = os.path.join(ROOT_DIR, ".github", "dependabot.yml")
+    assert os.path.isfile(path), "No dependabot.yml found in .github/"

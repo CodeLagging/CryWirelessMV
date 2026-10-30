@@ -1,0 +1,25 @@
+# One-command startup for CryWirelessMV.
+#
+#   docker compose run --rm cwmv
+#
+# CryWirelessMV is a self-contained CLI tool — it has no databases or backing
+# services, so this file wires up the single app container with the host access
+# its wireless/Bluetooth work requires. It is interactive, so use `run` (which
+# attaches a TTY) rather than `up`.
+#
+# The adapters must be visible to the container: --privileged + host networking
+# give it the raw sockets and interface control monitor mode and HCI need, and
+# the USB bind-mount passes through a USB Wi-Fi/BT dongle. Without real hardware
+# only the menu and non-radio features work.
+
+services:
+  cwmv:
+    build: .
+    image: crywirelessmv:latest
+    privileged: true
+    network_mode: host
+    volumes:
+      - /dev/bus/usb:/dev/bus/usb        # USB Wi-Fi / Bluetooth adapter passthrough
+      - ./sessions:/app/sessions          # persist captures/logs to the host
+    stdin_open: true                       # interactive menu
+    tty: true
