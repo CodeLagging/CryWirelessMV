@@ -30,7 +30,6 @@ jobs:
           uv run pyinstaller --onefile --clean --log-level WARN
           --name CryWirelessMV_${VERSION}_x64
           --collect-all scapy --collect-submodules core
-          --add-data "IResp.bin:."
           --add-data "LICENSE:."
           --add-data "requirements.txt:."
           main.py
