@@ -235,7 +235,7 @@ def validate_settings(settings: dict):
         network = ipaddress.ip_network(s["ip_range"], strict=False)
     except (ValueError, TypeError) as e:
         warn(f"Invalid IP range '{s['ip_range']}' ({e}) — reset to default.")
-        network = ipaddress.ip_network(DEFAULTS["ip_range"])
+        network = ipaddress.ip_network(str(DEFAULTS["ip_range"]))
         s["ip_range"] = str(network)
 
     for key in ("dhcp_start", "dhcp_end"):

@@ -11,7 +11,7 @@ dependencies = [
     "colorama==0.4.6",
     "future==1.0.0",
     "iso8601==2.1.0",
-    "pyinstaller==5.13.0",
+    "pyinstaller>=6.22.3",
     "pyperclip==1.11.0",
     "pyserial==3.5",
     "pyyaml==6.0.3",
@@ -24,15 +24,55 @@ cwmv-development = "cwmv_development:main"
 
 [dependency-groups]
 dev = [
+    "mypy>=1.11.0",
+    "pip-audit>=2.7.0",
     "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
     "ruff>=0.17.2",
 ]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+check_untyped_defs = false
+
+# scapy exports its protocol layers dynamically, so a static checker can't see
+# Dot11/RadioTap/etc. as attributes of scapy.all. Treat it as untyped.
+[[tool.mypy.overrides]]
+module = "scapy.*"
+follow_imports = "skip"
+follow_imports_for_stubs = true
+
+# Legacy modules predating type-checking adoption. New code is checked; these
+# carry pre-existing debt and are typed gradually (see CHANGELOG / tech-debt).
+[[tool.mypy.overrides]]
+module = [
+    "core.set_path",
+    "core.APCC.confgen",
+    "core.APCC.settings_ui",
+    "core.BT_HCI.bluetooth",
+    "core.WIFI.scanner",
+    "core.WIFI.handshake_module",
+]
+ignore_errors = true
+
+[tool.coverage.run]
+source = ["core"]
+omit = ["*/__pycache__/*", "*_ui.py", "core/APCC/tui.py"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+]
+
 [tool.uv]
 package = false
 
 [project.optional-dependencies]
 build = [
-    "pyinstaller>=5.13",
+    "pyinstaller>=6.22.3",
     "setuptools>=68",
 ]
 [tool.ruff]
