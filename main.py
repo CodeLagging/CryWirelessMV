@@ -17,6 +17,8 @@ def startup():
     global debug, banner, ModuleSetup, HandshakeCaptureModule, BleModule, bluetooth, Scanner, ScannerAP
     try:
         import banner
+        from core.log_config import configure_logging
+        configure_logging()
         from debugs import debug
         debug("info", "Core Modules Loaded")
     # Cool fallback cuz theres always one broken installation on someone's system

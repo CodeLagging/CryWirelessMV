@@ -1,6 +1,12 @@
 # debugs.py
 from colorama import Fore, Style, init
 
+try:
+    from core.log_config import log_at
+except ImportError:  # core.* not importable (e.g. run standalone) — degrade to console only
+    def log_at(level_name, message):
+        return None
+
 init()
 message_types = {
     'error' : f'{Fore.RED}[ERR]: {Style.RESET_ALL}',
@@ -12,6 +18,8 @@ message_types = {
 }
 
 def debug(type, message):
+    # Forensic trail (file log, if configured); console output below is unchanged.
+    log_at(type, message)
     if type.lower() == "critical":
         print(f'{message_types.get(type.lower())} {message}{Style.RESET_ALL}')
     else:
