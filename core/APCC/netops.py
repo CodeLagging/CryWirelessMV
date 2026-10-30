@@ -7,6 +7,15 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 
+# --- SECURITY FIX (Task 04): Strict Interface Name Validation ---
+IFACE_REGEX = re.compile(r'^[a-zA-Z0-9_-]{1,15}$')
+
+def validate_iface(name: str) -> str:
+    """Validate interface names before they are used in subprocess calls."""
+    if not name or not IFACE_REGEX.match(name):
+        raise ValueError(f"Invalid interface name: {name}. Must match {IFACE_REGEX.pattern}")
+    return name
+
 
 class _DummyResult:
     def __init__(self):
@@ -105,6 +114,7 @@ _AP_SVC_MATCHES = [
 
 
 def allow_ap_services(ap_iface: str, debug):
+    validate_iface(ap_iface)
     _deny_ap_services(ap_iface)
     for match in _AP_SVC_MATCHES:
         _run(["iptables", "-I", "INPUT", "1", "-i", ap_iface, *match,
@@ -147,6 +157,7 @@ def block_ipv6_forwarding(ap_iface: str, debug):
     """We hand clients IPv4 only and don't NAT v6. Drop forwarded IPv6 on the
     AP interface so clients don't half-attempt IPv6 (Happy-Eyeballs stalls) and
     so nothing leaks out un-NATed if the host has v6 forwarding enabled."""
+    validate_iface(ap_iface)
     if not _ip6tables_available():
         return
     _unblock_ipv6_forwarding(ap_iface)
@@ -363,6 +374,7 @@ def restore_state(save_dir: Path, debug, iface=None):
 
 
 def set_client_timeout(ap_iface: str, mac: str, enabled: bool, debug):
+    validate_iface(ap_iface)
     while True:
         res = _run(["iptables", "-D", "FORWARD", "-i", ap_iface, "-m", "mac",
                      "--mac-source", mac, "-j", "DROP"])
@@ -416,6 +428,10 @@ def ensure_forwarding(ap_iface: str, bridge_iface: str, debug):
     some systems (NetworkManager, sysctl.d, security hardening) leave one of
     those at 0 — so packets are silently not routed even though our iptables
     rules are perfect. Set and verify all of them."""
+    validate_iface(ap_iface)
+    if bridge_iface:
+        validate_iface(bridge_iface)
+
     targets = [
         "/proc/sys/net/ipv4/ip_forward",
         "/proc/sys/net/ipv4/conf/all/forwarding",
@@ -448,6 +464,7 @@ def iptables_backend():
 
 
 def isolate_ap_iface(ap_iface: str, debug):
+    validate_iface(ap_iface)
     deisolate_ap_iface(ap_iface, debug, quiet=True)
     # Clients still get DHCP/DNS from the AP in isolated mode — just no internet.
     allow_ap_services(ap_iface, debug)
@@ -461,6 +478,7 @@ def isolate_ap_iface(ap_iface: str, debug):
 
 
 def deisolate_ap_iface(ap_iface: str, debug, quiet=False):
+    validate_iface(ap_iface)
     while True:
         res = _run(["iptables", "-D", "FORWARD", "-i", ap_iface, "-j", "DROP"])
         if res.returncode != 0:
@@ -495,6 +513,7 @@ PBR_RULE_PRIORITY = 10000
 
 
 def _iface_default_gateway(iface, debug=None):
+    validate_iface(iface)
     res = _run(["ip", "route", "show", "table", "all", "default", "dev", iface])
     for line in res.stdout.splitlines():
         parts = line.split()
@@ -533,6 +552,7 @@ def _set_rp_filter(iface, value, debug):
 def _loosen_one_rp_filter(iface, debug):
     if not iface:
         return
+    validate_iface(iface)
     path = _rp_filter_path(iface)
     try:
         current = int(path.read_text().strip())
@@ -561,6 +581,8 @@ def restore_rp_filter(ap_iface: str, bridge_iface: str, debug):
 
 def setup_policy_routing(ap_iface: str, bridge_iface: str, ip_range: str, debug,
                           gateway_override: str | None = None):
+    validate_iface(ap_iface)
+    validate_iface(bridge_iface)
     gateway = gateway_override or _iface_default_gateway(bridge_iface, debug)
     if not gateway:
         debug("warn", f"Policy routing not set up for {bridge_iface} "
@@ -602,6 +624,10 @@ def setup_policy_routing(ap_iface: str, bridge_iface: str, ip_range: str, debug,
 
 
 def teardown_policy_routing(ap_iface: str, bridge_iface: str, debug, quiet=False):
+    if ap_iface:
+        validate_iface(ap_iface)
+    if bridge_iface:
+        validate_iface(bridge_iface)
     _run(["ip", "rule", "del", "priority", str(PBR_RULE_PRIORITY)])
     _run(["ip", "route", "flush", "table", str(PBR_TABLE_ID)])
     restore_rp_filter(ap_iface, bridge_iface, debug)
@@ -615,6 +641,9 @@ def detect_gateway(iface: str, debug=None):
 
 def setup_nat(ap_iface: str, bridge_iface: str, ip_range: str, debug,
               gateway_override: str | None = None, configured_mtu: int = 0):
+    validate_iface(ap_iface)
+    if bridge_iface:
+        validate_iface(bridge_iface)
     if not bridge_iface:
         debug("info", "No bridge/uplink interface set — NAT not enabled.")
         return False
@@ -720,6 +749,10 @@ def _warn_if_forward_blocked(bridge_iface, debug):
 
 
 def teardown_nat(ap_iface: str, bridge_iface: str, ip_range: str, debug, quiet=False):
+    if ap_iface:
+        validate_iface(ap_iface)
+    if bridge_iface:
+        validate_iface(bridge_iface)
     if not bridge_iface:
         return
     teardown_policy_routing(ap_iface, bridge_iface, debug, quiet=True)
@@ -745,7 +778,9 @@ def teardown_nat(ap_iface: str, bridge_iface: str, ip_range: str, debug, quiet=F
 
 def fix_rules(ap_iface: str, bridge_iface: str, ip_range: str, debug,
               gateway_override: str | None = None):
+    validate_iface(ap_iface)
     if bridge_iface:
+        validate_iface(bridge_iface)
         ok = setup_nat(ap_iface, bridge_iface, ip_range, debug,
                         gateway_override=gateway_override)
     else:
@@ -756,6 +791,9 @@ def fix_rules(ap_iface: str, bridge_iface: str, ip_range: str, debug,
 
 def reset_rules(ap_iface: str, bridge_iface: str, ip_range: str, debug,
                  gateway_override: str | None = None):
+    validate_iface(ap_iface)
+    if bridge_iface:
+        validate_iface(bridge_iface)
     teardown_nat(ap_iface, bridge_iface, ip_range, debug, quiet=True)
     deisolate_ap_iface(ap_iface, debug, quiet=True)
     _run(["iptables", "-t", "nat", "-F"])
@@ -818,6 +856,9 @@ def detect_host_firewall():
 def verify_nat(ap_iface: str, bridge_iface: str, ip_range: str, debug, gateway=None):
     """Post-setup self-check: confirm the system is actually in a state where
     forwarding can work, and surface the exact reason if not."""
+    validate_iface(ap_iface)
+    if bridge_iface:
+        validate_iface(bridge_iface)
     ok = True
     if _sysctl_read("/proc/sys/net/ipv4/ip_forward") != "1":
         debug("error", "ip_forward is 0 — routing is disabled at the kernel level.")
@@ -861,6 +902,9 @@ def report_traffic_counters(ap_iface, bridge_iface, ip_range, debug):
     table so we can see whether REAL client traffic (arriving over the air on
     the AP iface) is actually being forwarded — the host-sourced ping test can't
     show this because locally-generated packets skip the FORWARD chain."""
+    validate_iface(ap_iface)
+    if bridge_iface:
+        validate_iface(bridge_iface)
     fwd_out = fwd_in = masq = None
     for line in _chain_counters(None, "FORWARD").splitlines():
         p = line.split()
@@ -911,6 +955,7 @@ def report_traffic_counters(ap_iface, bridge_iface, ip_range, debug):
 
 
 def _iface_phy(iface):
+    validate_iface(iface)
     try:
         return Path(f"/sys/class/net/{iface}/phy80211/name").read_text().strip()
     except OSError:
@@ -964,6 +1009,9 @@ def dns_probe(server_ip, name="example.com", timeout=3):
 
 
 def diagnose(ap_iface: str, bridge_iface: str, ip_range: str, debug, gateway=None):
+    validate_iface(ap_iface)
+    if bridge_iface:
+        validate_iface(bridge_iface)
     debug("info", "=== bridge diagnostics ===")
     debug("info", f"iptables backend: {iptables_backend()}")
     debug("info", f"ip_forward={_sysctl_read('/proc/sys/net/ipv4/ip_forward')} "

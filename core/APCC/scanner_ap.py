@@ -11,8 +11,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import ClassVar
 
-from core.APCC import confgen, netops, reslimit
+from core.APCC import netops, reslimit
 from core.APCC import settings as settings_mod
+from core.APCC.ap_state import APStateManager
 from core.APCC.binpaths import get_bin, startup_module
 from core.APCC.clients import ClientManager
 from core.APCC.commands import CommandRouter
@@ -38,13 +39,19 @@ from core.APCC.termkeys import (
     TermKeys,
 )
 
+# --- SECURITY FIX (Task 04): Strict Interface Name Validation ---
+IFACE_REGEX = re.compile(r'^[a-zA-Z0-9_-]{1,15}$')
+
+def validate_iface(name):
+    if not IFACE_REGEX.match(name):
+        raise ValueError(f"Invalid interface name: {name}. Must match {IFACE_REGEX.pattern}")
+    return name
 
 class _DummyResult:
     def __init__(self):
         self.stdout = ""
         self.stderr = ""
         self.returncode = 1
-
 
 def _run(cmd, check=False, capture=True, timeout=5):
     if isinstance(cmd, str):
@@ -55,76 +62,9 @@ def _run(cmd, check=False, capture=True, timeout=5):
     except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
         return _DummyResult()
 
-
-def _diagnose_port_owners(ports=(53, 67)):
-    found = {}
-    res = _run(["ss", "-tulpn"])
-    if res.returncode != 0:
-        return found
-    for line in res.stdout.splitlines():
-        m = re.search(r":(\d+)\s+[\d.:\[\]*]+\s+users:\(\(\"([^\"]+)\",pid=(\d+)", line)
-        if not m:
-            continue
-        port, name, pid = int(m.group(1)), m.group(2), m.group(3)
-        if port not in ports or port in found:
-            continue
-        cmdline = ""
-        try:
-            cmdline = Path(f"/proc/{pid}/cmdline").read_text().replace("\x00", " ").strip()
-        except OSError:
-            pass
-        unit = ""
-        try:
-            cgroup = Path(f"/proc/{pid}/cgroup").read_text()
-            m2 = re.search(r"/([\w@.\-]+\.service)\b", cgroup)
-            if m2:
-                unit = m2.group(1)
-        except (OSError, AttributeError, TypeError):
-            pass
-        found[port] = {"pid": pid, "name": name, "cmdline": cmdline, "unit": unit}
-    return found
-
-
-def _dnsmasq_conf_path(cmdline):
-    m = re.search(r"--conf-file[= ](\S+)", cmdline)
-    if m:
-        return m.group(1)
-    return "/etc/dnsmasq.conf"
-
-
-def _dnsmasq_conf_dir_files(cmdline):
-    m = re.search(r"(?:--conf-dir[= ]|-7[= ])(\S+)", cmdline)
-    if not m:
-        return []
-    parts = m.group(1).split(",")
-    conf_dir = parts[0]
-    suffixes = parts[1:]
-    try:
-        entries = sorted(Path(conf_dir).iterdir())
-    except OSError:
-        return []
-
-    include_only = [s[1:] for s in suffixes if s.startswith("*")]
-    if include_only:
-        return [str(entry) for entry in entries if entry.is_file()
-                and any(entry.name.endswith(suf) for suf in include_only)]
-
-    files = []
-    for entry in entries:
-        if not entry.is_file():
-            continue
-        if any(entry.name.endswith(suf) for suf in suffixes):
-            continue
-        files.append(str(entry))
-    return files
-
-
-
 class ScannerAP:
-    DEFAULT_UPSTREAM_DNS: ClassVar[list[str]] = ["1.1.1.1", "8.8.8.8"]
-
     def __init__(self, iface, savepath="./ap_sessions"):
-        self.iface = iface
+        self.iface = validate_iface(iface) # Validate on entry
         self.save_dir = Path(savepath)
         self._log_lock = threading.RLock()
         self._prompt_active = False
@@ -145,18 +85,10 @@ class ScannerAP:
 
         self.session_dir = None
         self.lease_file = str(self.save_dir / "dnsmasq.leases")
-        self.client_mgr = ClientManager(iface, self.lease_file)
+        self.client_mgr = ClientManager(self.iface, self.lease_file)
         self.logger = None
 
-
-
-
-
         self.domain_filter = DomainFilter(self.save_dir / "insp_filter")
-
-
-
-
         self.domain_control = DomainControl(self.save_dir)
         self.redirect_server = RedirectServer(self.domain_control, self.debug)
 
@@ -171,9 +103,7 @@ class ScannerAP:
         self._watchdog_thread = None
 
         self.router = self._build_commands()
-
-
-
+        self.state_mgr = None # Initialized in _startup
 
     def _reapply_client_timeouts(self):
         for mac in self.domain_control.timeout_macs:
@@ -185,71 +115,21 @@ class ScannerAP:
             sys.exit(1)
         check_root(self.debug)
 
-
-
-
-
         netops.backup_state(self.save_dir, self.debug)
-
         self.settings = settings_mod.load_settings(self.save_dir)
 
         ts = datetime.now().strftime("%m_%d_%H-%M")
         self.session_dir = self.save_dir / ts
         self.logger = APLogger(self.iface, self.session_dir, self.client_mgr,
                                 self.debug, domain_filter=self.domain_filter)
-
-
-
-
-
-    # Reliable public resolvers used as dnsmasq's upstream when the user hasn't
-    # pinned one. dnsmasq runs on the AP host, so these queries egress the same
-    # way the host's own DNS does — they work whenever the host has internet,
-    # and (unlike the uplink gateway) are guaranteed to actually answer. Kept
-    # portable: written into dnsmasq's own config, never read from host files.
-
-    def _resolve_upstream_dns(self):
-        configured = (self.settings.get("upstream_dns") or "").strip()
-        if configured:
-            return [p.strip() for p in configured.replace(";", ",").split(",")
-                    if p.strip()]
-        if self.bridge_enabled and self.settings.get("bridge_iface"):
-            return list(self.DEFAULT_UPSTREAM_DNS)
-        return []
+        
+        self.state_mgr = APStateManager(self.iface, self.save_dir, self.settings, self.logger)
 
     def _write_configs(self):
-        corrected, warnings = settings_mod.validate_settings(self.settings)
-        self.settings = corrected
-        settings_mod.save_settings(self.save_dir, self.settings)
-        for w in warnings:
-            self.debug("warn", f"[settings] {w}")
-
-        hostapd_conf = confgen.generate_hostapd_conf(self.settings, self.iface)
-        gateway = self._gateway_for(self.settings["ip_range"])
-        extra_lines = self.domain_control.generate_dnsmasq_lines(self.domain_filter, gateway)
-        client_mtu = netops.resolve_client_mtu(
-            self.settings.get("bridge_iface", ""), self.settings.get("mtu", 0))
-        dnsmasq_conf, gateway = confgen.generate_dnsmasq_conf(
-            self.settings, self.iface, self.lease_file, extra_lines=extra_lines,
-            mtu=client_mtu, upstream_dns=self._resolve_upstream_dns())
-
-        conf_dir = self.save_dir / "conf"
-        conf_dir.mkdir(parents=True, exist_ok=True)
-        hostapd_path = conf_dir / "hostapd.conf"
-        dnsmasq_path = conf_dir / "dnsmasq.conf"
-        hostapd_path.write_text(hostapd_conf)
-        dnsmasq_path.write_text(dnsmasq_conf)
-        return hostapd_path, dnsmasq_path, gateway
+        # Delegate to state manager
+        return self.state_mgr.write_configs(self.domain_control, self.domain_filter)
 
     def _release_interface(self):
-        # Make NetworkManager let go of the radio WITHOUT touching its config:
-        # these are all runtime device operations that revert on 'radio off' /
-        # quit (we hand managed back), so nothing persistent is changed.
-        #   1. disconnect — tears down any active connection (e.g. it had
-        #      already joined your home Wi-Fi), which 'managed no' alone does
-        #      not do mid-session, so NM stops owning the link.
-        #   2. managed no — NM then ignores the device entirely.
-        #   3. kill any wpa_supplicant bound to this iface so nothing re-auths.
         if self._which("nmcli"):
             _run(["nmcli", "device", "disconnect", self.iface], timeout=8)
             _run(["nmcli", "device", "set", self.iface, "managed", "no"])
@@ -376,10 +256,6 @@ class ScannerAP:
                         self._auto_reconnect_pending = self._reconnect_attempts < 5
                     self._reconnect_in_progress = False
 
-
-
-
-
     def start_radio(self):
         with self._ap_lock:
             if self.radio_on:
@@ -401,10 +277,6 @@ class ScannerAP:
             self.debug("ok", f"Radio off — {self.iface} released back to the system.")
 
     def _radio_up(self):
-        """Claim the interface exclusively for APCC and bring the radio up:
-        release it from NetworkManager/wpa_supplicant, reset it to a clean
-        managed state, apply any MAC/tx-power overrides, and bind it up so
-        nothing else can grab it out from under the AP."""
         if self.logger:
             self.logger.stop_sniff()
 
@@ -415,7 +287,6 @@ class ScannerAP:
 
         self._warn_if_phy_conflict()
 
-        # Regulatory domain (affects which channels / tx power are legal).
         cc = (self.settings.get("country_code") or "").strip().upper()
         if cc:
             _run(["iw", "reg", "set", cc])
@@ -428,7 +299,6 @@ class ScannerAP:
                 self.debug("warn", f"Could not set MAC override: {res.stderr.strip()}")
         _run(["ip", "link", "set", self.iface, "up"])
 
-        # Power save off by default — a sleeping AP radio drops beacons/ACKs.
         ps = "on" if self.settings.get("power_save") else "off"
         _run(["iw", "dev", self.iface, "set", "power_save", ps])
 
@@ -464,19 +334,16 @@ class ScannerAP:
         if not self.dhcp_enabled:
             _run(["pkill", "-f", f"dnsmasq.*{dnsmasq_path.name}"])
 
-        # Stage 1 - radio: claim the interface and bring it up. Already done if
-        # the user ran 'radio on' first; otherwise 'ap on' brings it up itself.
         if not self.radio_on:
             self._radio_up()
 
-        # Stage 2 - addressing + DHCP (only when DHCP is enabled).
         if self.dhcp_enabled:
             _run(["ip", "addr", "add", f"{gateway}/{prefix}", "dev", self.iface])
-            if not self._start_dnsmasq(dnsmasq_path, kr=kr):
+            self.dnsmasq_proc = self.state_mgr.start_dnsmasq(dnsmasq_path, self.client_mgr, kr=kr)
+            if not self.dnsmasq_proc:
                 self._cleanup_failed_start(gateway, prefix)
                 self.dhcp_enabled = False
 
-        # Stage 3 - access point: start broadcasting.
         self.hostapd_proc = subprocess.Popen(
             [get_bin("hostapd"), str(hostapd_path)],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
@@ -492,10 +359,6 @@ class ScannerAP:
             self.hostapd_proc = None
             self._cleanup_failed_start(gateway, prefix)
             return
-
-
-
-
 
         status = _run([get_bin("hostapd_cli"), "-i", self.iface, "status"])
         if status.returncode != 0 or "state=ENABLED" not in status.stdout:
@@ -522,19 +385,7 @@ class ScannerAP:
                               gateway_override=self.settings.get("bridge_gateway"),
                               configured_mtu=self.settings.get("mtu", 0))
         else:
-
-
-
-
             netops.isolate_ap_iface(self.iface, self.debug)
-
-
-
-
-
-
-
-
 
         self._reapply_client_timeouts()
         self.client_mgr.reapply_blocks()
@@ -548,10 +399,6 @@ class ScannerAP:
 
         self.debug("ok", f"AP '{self.settings['ssid']}' started on {self.iface}.")
 
-    # The useful hostapd events are: the AP coming up/down, a client joining
-    # or leaving, and anything that went wrong. The intermediate per-join
-    # trace (IEEE 802.11 authenticated/associated, WPA handshake steps,
-    # RADIUS accounting) is dropped so a single connect is one line, not six.
     _HOSTAPD_KEEP = ("ap-enabled", "ap-disabled", "ap-sta-connected",
                      "ap-sta-disconnected", "deauthenticated", "disassociated",
                      "fail", "error", "warn", "denied", "reject", "invalid",
@@ -593,152 +440,11 @@ class ScannerAP:
                                  self.settings["ip_range"], self.debug)
         netops.deisolate_ap_iface(self.iface, self.debug, quiet=True)
 
-
-
         _run(["ip", "addr", "flush", "dev", self.iface])
         reslimit.remove_limits(self.iface, self.debug)
         self.ap_running = False
-        # The radio stays claimed so 'ap on' can bring it straight back up;
-        # 'radio off' (or shutdown) hands the interface back to the system.
         self.debug("ok", "AP stopped (radio still on).")
 
-    def _start_dnsmasq(self, dnsmasq_path, kr=None, _retries_left=2):
-
-
-        _run(["pkill", "-f", f"dnsmasq.*{dnsmasq_path.name}"])
-        time.sleep(0.3)
-
-        static_hosts_path = self.save_dir / "conf" / "dhcp-hosts"
-        lines = [f"{mac},{ip}" for mac, ip in self.client_mgr.static_ips.items()]
-        static_hosts_path.write_text("\n".join(lines) + ("\n" if lines else ""))
-
-        conf_text = dnsmasq_path.read_text()
-        if "dhcp-hostsfile" not in conf_text:
-            conf_text += f"dhcp-hostsfile={static_hosts_path}\n"
-            dnsmasq_path.write_text(conf_text)
-
-        self.dnsmasq_proc = subprocess.Popen(
-            [get_bin("dnsmasq"), "--no-daemon", "--conf-file=" + str(dnsmasq_path)],
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-        )
-        reslimit.exclude_pid_from_limits(self.dnsmasq_proc.pid, self.debug)
-        time.sleep(0.5)
-        if self.dnsmasq_proc.poll() is not None:
-            out = ""
-            try:
-                out = self.dnsmasq_proc.stdout.read()
-            except (OSError, ValueError):
-                pass
-
-            address_in_use = "address already in use" in out.lower()
-            owners = _diagnose_port_owners((53, 67)) if address_in_use else {}
-            fix_target = None
-            for info in owners.values():
-                if info["name"] == "dnsmasq" or info["name"].startswith("systemd-resolve"):
-                    fix_target = info
-                    break
-
-            attempting = fix_target is not None
-            self.debug("info" if attempting else "error",
-                       "dnsmasq couldn't bind — port 53/67 already in use, "
-                       "adjusting the conflicting service..." if attempting
-                       else "dnsmasq failed to start.")
-
-            if address_in_use:
-                if owners:
-                    seen = {}
-                    for port, info in owners.items():
-                        key = (info["name"], info["pid"])
-                        seen.setdefault(key, []).append(str(port))
-                    culprits = ", ".join(
-                        f"{name} (pid {pid}, port{'s' if len(ports) > 1 else ''} "
-                        f"{'/'.join(ports)})"
-                        for (name, pid), ports in seen.items()
-                    )
-                    self.debug("info" if attempting else "error",
-                               f"Port 53/67 on {self.iface} is already held "
-                               f"by: {culprits}.")
-                    for info in owners.values():
-                        detail = (f"  pid {info['pid']} ({info['name']}): "
-                                  f"{info['cmdline'] or '<cmdline unavailable>'}")
-                        if info["unit"]:
-                            detail += f"  [unit: {info['unit']}]"
-                        self.debug("info", detail)
-
-                    fixed = False
-                    if fix_target is not None:
-                        info = fix_target
-                        unit_lower = info["unit"].lower()
-                        if info["name"] == "dnsmasq" and "networkmanager" in unit_lower:
-                            self.debug("info",
-                                       f"Held by {info['unit']}'s own internal "
-                                       "dnsmasq (shared/NAT connection on your "
-                                       "other interface). Scoping it to specific "
-                                       "interfaces instead of the wildcard "
-                                       "address (tracked under this session's "
-                                       "backup, reverted at exit or via --fix).")
-                            fixed = self._apply_nm_dnsmasq_fix(info["unit"])
-                        elif info["name"] == "dnsmasq":
-                            self.debug("info",
-                                       f"Held by dnsmasq under "
-                                       f"{info['unit'] or 'no systemd unit'} — "
-                                       "scoping its own conf file to specific "
-                                       "interfaces instead of the wildcard "
-                                       "address (tracked under this session's "
-                                       "backup, reverted at exit or via --fix).")
-                            fixed = self._apply_generic_dnsmasq_fix(info)
-                        elif info["name"].startswith("systemd-resolve"):
-                            self.debug("info",
-                                       "Held by systemd-resolved's DNS stub "
-                                       "listener. Disabling just that listener "
-                                       "(host DNS resolution keeps working — "
-                                       "this only drops the network-facing "
-                                       "socket; tracked under this session's "
-                                       "backup, reverted at exit or via --fix).")
-                            fixed = self._apply_systemd_resolved_fix(info["unit"])
-                    else:
-                        for info in owners.values():
-                            self.debug("error",
-                                       f"Don't know how to safely reconfigure "
-                                       f"'{info['name']}' automatically — "
-                                       "stop or reconfigure it manually, or "
-                                       "scope it to a specific interface if it "
-                                       "supports that, then retry.")
-
-                    if fixed and _retries_left > 0:
-                        self.debug("info", "Retrying dnsmasq startup...")
-                        return self._start_dnsmasq(dnsmasq_path, kr=None,
-                                                    _retries_left=_retries_left - 1)
-                    elif fixed:
-                        self.debug("error",
-                                   "Still couldn't bind after applying a fix and "
-                                   "retrying — giving up rather than retrying "
-                                   "indefinitely. Check manually with: "
-                                   "sudo ss -tulpn | grep -E ':53|:67'")
-                else:
-                    self.debug("error",
-                               f"Port 53/67 already bound on {self.iface}, but "
-                               "the owning process couldn't be identified "
-                               "(ss not available or output unparsable). Check "
-                               "manually with: sudo ss -tulpn | grep -E ':53|:67'")
-
-
-            if out.strip():
-                for line in out.strip().splitlines()[-10:]:
-                    self.debug("error", f"  dnsmasq: {line}")
-            self.dnsmasq_proc = None
-            return False
-        self._dnsmasq_log_thread = threading.Thread(
-            target=self._drain_dnsmasq_log, args=(self.dnsmasq_proc,), daemon=True)
-        self._dnsmasq_log_thread.start()
-        return True
-
-    # Keep only the lines worth reading: the one-line result of each DHCP
-    # handshake (DISCOVER/OFFER/REQUEST/ACK/NAK...), the upstream dnsmasq
-    # chose, and real errors. Everything else dnsmasq emits per lease — the
-    # "sent size: ... option NN", "requested options:", "available DHCP
-    # range", "next server", "tags:" and per-query A/AAAA trace — is dropped
-    # so one client joining doesn't scroll 30 lines off the screen.
     _DNSMASQ_KEEP = ("dhcpdiscover", "dhcpoffer", "dhcprequest", "dhcpack",
                      "dhcpnak", "dhcpdecline", "dhcprelease", "dhcpinform",
                      "no servers", "using nameserver", "using server",
@@ -756,165 +462,6 @@ class ScannerAP:
         except (OSError, ValueError) as e:
             self.debug("warn", f"dnsmasq log drain ended: {e}")
 
-    def _apply_nm_dnsmasq_fix(self, unit):
-        unit = unit or "NetworkManager"
-
-        snippet_dir = Path("/etc/NetworkManager/dnsmasq-shared.d")
-        snippet_path = snippet_dir / "bind-interfaces.conf"
-        netops.snapshot_extra_file(self.save_dir, str(snippet_path), self.debug,
-                                    restart_unit=unit)
-        try:
-            snippet_dir.mkdir(parents=True, exist_ok=True)
-            snippet_path.write_text(
-                f"bind-interfaces\nexcept-interface={self.iface}\n")
-        except (OSError, ValueError) as e:
-            self.debug("error", f"Could not write {snippet_path}: {e}")
-            return False
-        self.debug("info", f"Wrote {snippet_path}. Restarting {unit}...")
-        return self._restart_unit_and_keep_iface_unmanaged(unit)
-
-    def _apply_generic_dnsmasq_fix(self, info):
-        conf_path = _dnsmasq_conf_path(info["cmdline"])
-        conf_dir_files = _dnsmasq_conf_dir_files(info["cmdline"])
-        all_files = [conf_path] + [f for f in conf_dir_files if f != conf_path]
-
-        for f in all_files:
-            netops.snapshot_extra_file(self.save_dir, f, self.debug,
-                                        restart_unit=info["unit"] or None)
-
-        changed_files = []
-        overridden_in = []
-
-
-
-
-        override_re = re.compile(
-            r"^[ \t]*(interface[ \t]*=[ \t]*" + re.escape(self.iface) +
-            r"|listen-address[ \t]*=[ \t]*" +
-            re.escape(self.gateway or "\x00no-gateway-set\x00") +
-            r")[ \t]*$",
-            re.MULTILINE,
-        )
-        for f in all_files:
-            p = Path(f)
-            if not p.is_file():
-                continue
-            try:
-                text = p.read_text()
-            except (OSError, ValueError) as e:
-                self.debug("error", f"Could not read {f}: {e}")
-                continue
-            new_text, n = override_re.subn(
-                lambda m: "#" + m.group(0) +
-                          "  # commented out by scannerap: overrode except-interface",
-                text,
-            )
-            if n:
-                try:
-                    p.write_text(new_text)
-                    changed_files.append(f)
-                    overridden_in.append(f)
-                except (OSError, ValueError) as e:
-                    self.debug("error", f"Could not modify {f}: {e}")
-                    return False
-
-
-
-        try:
-            p = Path(conf_path)
-            text = p.read_text() if p.is_file() else ""
-
-
-
-
-
-            has_bind = bool(re.search(
-                r"^[ \t]*(bind-interfaces|bind-dynamic)[ \t]*$", text,
-                re.MULTILINE))
-            has_except = bool(re.search(
-                r"^[ \t]*except-interface[ \t]*=[ \t]*" +
-                re.escape(self.iface) + r"[ \t]*$", text, re.MULTILINE))
-            to_add = []
-            if not has_bind:
-                to_add.append("bind-interfaces")
-            if not has_except:
-                to_add.append(f"except-interface={self.iface}")
-            if to_add:
-                if text and not text.endswith("\n"):
-                    text += "\n"
-                text += "\n".join(to_add) + "\n"
-                p.parent.mkdir(parents=True, exist_ok=True)
-                p.write_text(text)
-                changed_files.append(conf_path)
-        except (OSError, ValueError) as e:
-            self.debug("error", f"Could not modify {conf_path}: {e}")
-            return False
-
-        if not changed_files:
-            self.debug("warn", f"{conf_path} (and its conf-dir) already "
-                                f"scope bind mode and exclude {self.iface} "
-                                "with no explicit override left — this "
-                                "isn't the same conflict, won't touch it.")
-            return False
-
-        if overridden_in:
-            self.debug("info",
-                       "Found an explicit interface=/listen-address= "
-                       f"override in: {', '.join(overridden_in)} — this "
-                       "was silently beating except-interface, so it's "
-                       "now commented out.")
-        self.debug("info", f"Updated: {', '.join(changed_files)}.")
-        if info["unit"]:
-            self.debug("info", f"Restarting {info['unit']}...")
-            return self._restart_unit_and_keep_iface_unmanaged(info["unit"])
-
-
-
-        self.debug("warn", f"No systemd unit found for pid {info['pid']} — "
-                            "sending SIGTERM directly instead of a service "
-                            "restart. If nothing supervises it, you may "
-                            "need to start it again yourself.")
-        _run(["kill", info["pid"]])
-        time.sleep(1)
-        return True
-
-    def _apply_systemd_resolved_fix(self, unit):
-        unit = unit or "systemd-resolved"
-
-        drop_in_dir = Path("/etc/systemd/resolved.conf.d")
-        drop_in_path = drop_in_dir / "no-stub-listener.conf"
-        netops.snapshot_extra_file(self.save_dir, str(drop_in_path), self.debug,
-                                    restart_unit=unit)
-        try:
-            drop_in_dir.mkdir(parents=True, exist_ok=True)
-            drop_in_path.write_text("[Resolve]\nDNSStubListener=no\n")
-        except (OSError, ValueError) as e:
-            self.debug("error", f"Could not write {drop_in_path}: {e}")
-            return False
-        self.debug("info", f"Wrote {drop_in_path}. Restarting {unit}...")
-        return self._restart_unit_and_keep_iface_unmanaged(unit)
-
-    def _restart_unit_and_keep_iface_unmanaged(self, unit):
-        res = _run(["systemctl", "restart", unit], timeout=15)
-        if res.returncode != 0:
-            self.debug("error", f"Failed to restart {unit}: {res.stderr.strip()}")
-            return False
-
-        time.sleep(3)
-
-        if self._which("nmcli"):
-            nmcli_res = _run(["nmcli", "device", "set", self.iface, "managed", "no"], timeout=10)
-            if nmcli_res.returncode != 0:
-                self.debug("warn", f"{unit} restarted, but could not keep {self.iface} unmanaged: {nmcli_res.stderr.strip()}")
-                self.debug("ok", f"{unit} restarted.")
-                return True
-            self.debug("ok", f"{unit} restarted; {self.iface} kept unmanaged.")
-            return True
-
-        self.debug("ok", f"{unit} restarted; nmcli unavailable so managed state was not changed.")
-        return True
-
-
     def _stop_dnsmasq(self):
         if self.dnsmasq_proc:
             self.dnsmasq_proc.terminate()
@@ -923,10 +470,6 @@ class ScannerAP:
             except (OSError, subprocess.TimeoutExpired):
                 self.dnsmasq_proc.kill()
             self.dnsmasq_proc = None
-
-
-
-
 
     def _display_loop(self, stop_event):
         self._display_shown = 0
@@ -938,10 +481,6 @@ class ScannerAP:
                     self._emit_line(line)
                 self._display_shown = len(buf)
             time.sleep(0.3)
-
-
-
-
 
     def _build_commands(self):
         r = CommandRouter()
@@ -968,16 +507,13 @@ class ScannerAP:
         r.register("fix", self._cmd_fix, "Re-apply NAT/firewall rules.")
         r.register("diag", self._cmd_diag,
                    "Diagnose the bridge/NAT path (forwarding, firewall, uplink).")
-        # settings
         r.register("show", self._cmd_show, "Show settings (optionally filtered).",
                    usage="show [key]")
         r.register("get", self._cmd_get, "Print one setting's value.", usage="get <key>")
         r.register("set", self._cmd_set, "Change a setting.", usage="set <key> <value>")
-        # clients
         r.register("clients", self._cmd_clients, "List connected clients.")
         r.register("client", self._cmd_client, "Act on a client.",
                    usage="client <mac|idx> <deauth|log|ip|timeout> [on|off|addr]")
-        # domain control
         r.register("block", self._cmd_block, "Block a domain (DNS sinkhole).",
                    usage="block <domain>")
         r.register("unblock", self._cmd_unblock, "Remove a block or redirect.",
@@ -987,7 +523,6 @@ class ScannerAP:
         r.register("blockfile", self._cmd_blockfile, "Enable/disable a block-list file.",
                    usage="blockfile <name> [on|off]")
         r.register("domains", self._cmd_domains, "Show domain block/redirect state.")
-        # log filters
         r.register("filter", self._cmd_filter, "Log filters: categories, files, toggles.",
                    usage="filter [cat|file|fulladdr|showdevice|reload] ...",
                    aliases=("filters",))
@@ -995,7 +530,6 @@ class ScannerAP:
 
     @staticmethod
     def _onoff(args, current):
-        """Resolve on/off/toggle from command args to a bool target state."""
         if not args:
             return not current
         a = args[0].lower()
@@ -1005,8 +539,6 @@ class ScannerAP:
             return False
         raise ValueError(f"expected on/off, got '{args[0]}'")
 
-    # Help is grouped by what each command is for, not alphabetically, so the
-    # natural bring-up order (radio -> ap -> dhcp -> bridge) reads top-to-bottom.
     _HELP_GROUPS = (
         ("Access point", ("radio", "ap", "dhcp", "bridge", "fix", "diag")),
         ("Clients", ("clients", "client")),
@@ -1037,8 +569,6 @@ class ScannerAP:
                     continue
                 shown.add(cmd.name)
                 print(f"    {cmd.usage or cmd.name:<34} {cmd.help}")
-        # Anything not placed in a group above still gets listed, so a newly
-        # registered command never silently vanishes from help.
         leftover = [c for c in self.router.commands() if c.name not in shown]
         if leftover:
             print("\n  Other:")
@@ -1309,7 +839,9 @@ class ScannerAP:
         self._write_configs()
         if self.dhcp_enabled and self.ap_running:
             self._stop_dnsmasq()
-            if self._start_dnsmasq(self.save_dir / "conf" / "dnsmasq.conf", kr=kr):
+            proc = self.state_mgr.start_dnsmasq(self.save_dir / "conf" / "dnsmasq.conf", self.client_mgr, kr=kr)
+            if proc:
+                self.dnsmasq_proc = proc
                 gateway = self._gateway_for(self.settings["ip_range"])
                 if self.domain_control.redirects:
                     self.redirect_server.start(gateway)
@@ -1433,7 +965,9 @@ class ScannerAP:
         gateway = str(next(iter(ipaddress.ip_network(network, strict=False).hosts())))
         _run(["ip", "addr", "add", f"{gateway}/{prefix}", "dev", self.iface])
         self._write_configs()
-        if self._start_dnsmasq(self.save_dir / "conf" / "dnsmasq.conf", kr=kr):
+        proc = self.state_mgr.start_dnsmasq(self.save_dir / "conf" / "dnsmasq.conf", self.client_mgr, kr=kr)
+        if proc:
+            self.dnsmasq_proc = proc
             self.dhcp_enabled = True
             pid = self.dnsmasq_proc.pid if self.dnsmasq_proc else "?"
             if self.domain_control.redirects:
@@ -1480,6 +1014,7 @@ class ScannerAP:
         else:
             self.bridge_enabled = False
 
+        self.state_mgr.bridge_enabled = self.bridge_enabled
         settings_mod.save_settings(self.save_dir, self.settings)
         self.debug("info", f"Bridge/NAT mode -> {'ON' if self.bridge_enabled else 'OFF'}"
                             f"{' (' + self.settings['bridge_iface'] + ')' if self.bridge_enabled else ''}")
@@ -1489,9 +1024,6 @@ class ScannerAP:
                                   self.settings["ip_range"], self.debug,
                                   gateway_override=self.settings.get("bridge_gateway"),
                                   configured_mtu=self.settings.get("mtu", 0))
-                # dnsmasq may have started before the uplink existed and locked
-                # onto the host resolver (127.0.0.53); regenerate its config so
-                # upstream DNS now points at the uplink, and restart it.
                 if self.dhcp_enabled:
                     self._apply_domain_change(kr)
             else:
@@ -1510,9 +1042,6 @@ class ScannerAP:
         return "APCC> "
 
     def _render_line(self):
-        """Repaint the current input line and place the cursor. One full
-        redraw per edit keeps cursor math trivial and handles log lines that
-        scroll in above the prompt."""
         buf = "".join(self._input_buf)
         out = "\r\033[2K" + self._prompt_text() + buf
         tail = len(self._input_buf) - self._cursor
@@ -1522,19 +1051,14 @@ class ScannerAP:
         sys.stdout.flush()
 
     def _read_line(self, kr):
-        """Read one command line with readline-style editing: left/right and
-        Home/End move the cursor, up/down walk history, Backspace/Delete edit
-        in place, Tab completes, and Ctrl-A/E/U/K/W/L behave as in a shell.
-        The prompt is redrawn whenever a background log line arrives, so
-        output scrolls above a live prompt."""
         with self._log_lock:
             self._input_buf = []
             self._cursor = 0
             self._prompt_active = True
             sys.stdout.write(self._prompt_text())
             sys.stdout.flush()
-        hist_pos = len(self._history)   # len == "editing a fresh line"
-        stash = ""                      # the fresh line, parked while browsing
+        hist_pos = len(self._history)
+        stash = ""
         try:
             while self.running:
                 ch = kr.getch(timeout=0.3)
@@ -1563,8 +1087,6 @@ class ScannerAP:
         return None
 
     def _handle_edit_key(self, ch, hist_pos, stash):
-        """Apply one editing keystroke to the input buffer. Returns the
-        (possibly updated) history cursor and parked fresh-line stash."""
         buf = self._input_buf
         if ch == BACKSPACE:
             if self._cursor > 0:
@@ -1589,14 +1111,14 @@ class ScannerAP:
         elif ch in (END, CTRL_E):
             self._cursor = len(buf)
             self._render_line()
-        elif ch == CTRL_U:                       # clear to start of line
+        elif ch == CTRL_U:
             del buf[:self._cursor]
             self._cursor = 0
             self._render_line()
-        elif ch == CTRL_K:                       # clear to end of line
+        elif ch == CTRL_K:
             del buf[self._cursor:]
             self._render_line()
-        elif ch == CTRL_W:                       # delete previous word
+        elif ch == CTRL_W:
             i = self._cursor
             while i > 0 and buf[i - 1] == " ":
                 i -= 1
@@ -1605,7 +1127,7 @@ class ScannerAP:
             del buf[i:self._cursor]
             self._cursor = i
             self._render_line()
-        elif ch == CTRL_L:                       # clear screen, keep the line
+        elif ch == CTRL_L:
             sys.stdout.write("\033[2J\033[H")
             self._render_line()
         elif ch in (UP, DOWN):
@@ -1616,7 +1138,6 @@ class ScannerAP:
             buf.insert(self._cursor, ch)
             self._cursor += 1
             self._render_line()
-        # ESC and anything else: ignored
         return hist_pos, stash
 
     def _history_step(self, direction, hist_pos, stash):
@@ -1628,7 +1149,7 @@ class ScannerAP:
             if hist_pos > 0:
                 hist_pos -= 1
                 self._set_buffer(self._history[hist_pos])
-        else:  # DOWN
+        else:
             if hist_pos < len(self._history):
                 hist_pos += 1
                 text = stash if hist_pos == len(self._history) else self._history[hist_pos]
@@ -1641,9 +1162,6 @@ class ScannerAP:
         self._render_line()
 
     def _complete_buffer(self):
-        """Tab completion, terminal-style: complete to the longest common
-        prefix, or print the candidate list when the choice is ambiguous.
-        Completion operates at the end of the line; the cursor jumps there."""
         self._cursor = len(self._input_buf)
         buf = "".join(self._input_buf)
         prefix, cands = self._completion_candidates(buf)
@@ -1751,23 +1269,15 @@ class ScannerAP:
             f"bridge={self.bridge_enabled}{br}  recording={self.logger.recording}"),
         ]
 
-
-
-
-
     def _emit_line(self, line):
         with self._log_lock:
             if self._prompt_active and sys.stdout.isatty():
-                # Erase the prompt, print the log line, then redraw the prompt
-                # with whatever the user has typed so far (and their cursor
-                # position) — shell-style "output scrolls above a live prompt".
                 sys.stdout.write("\r\033[2K" + line + "\n")
                 self._render_line()
             else:
                 print(line)
 
     _LEVEL_STYLE: ClassVar[dict[str, tuple[str, str]]] = {
-
         "debug":    ("DEBUG",    "\033[2;37m"),
         "info":     ("INFO",     "\033[36m"),
         "ok":       ("OK",       "\033[32m"),
@@ -1786,10 +1296,6 @@ class ScannerAP:
             line = f"[{ts}] [{label}] {msg}"
         self._emit_line(line)
 
-
-
-
-
     def run(self, fix=False):
         if os.geteuid() != 0:
             print("[!] This needs root. Re-run with sudo.")
@@ -1806,8 +1312,6 @@ class ScannerAP:
 
         self._startup()
 
-        # Prefer the Textual control-panel UI; fall back to the classic
-        # raw-terminal REPL if Textual isn't available or APCC_CLASSIC=1.
         if os.environ.get("APCC_CLASSIC") != "1" and sys.stdout.isatty():
             try:
                 from core.APCC.tui import run_tui
@@ -1866,8 +1370,6 @@ class ScannerAP:
             self.stop_radio()
         netops.restore_state(self.save_dir, self.debug, iface=self.iface)
 
-
-
         try:
             Path(self.lease_file).unlink()
         except FileNotFoundError:
@@ -1905,4 +1407,8 @@ if __name__ == "__main__":
                          "runtime config fixes for this interface, then "
                          "exit — does not start the interactive AP.")
     args = p.parse_args()
-    ScannerAP(iface=args.iface, savepath=args.savepath).run(fix=args.fix)
+    try:
+        ScannerAP(iface=args.iface, savepath=args.savepath).run(fix=args.fix)
+    except ValueError as e:
+        print(f"[!] Error: {e}")
+        sys.exit(1)
