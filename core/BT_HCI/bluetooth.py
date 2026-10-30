@@ -12,7 +12,9 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any
+
+from core.BT_HCI.ble_constants import BluetoothConstants
 
 
 @dataclass
@@ -62,207 +64,12 @@ class bluetooth:
     DEVICE = "org.bluez.Device1"
     BATTERY = "org.bluez.Battery1"
 
-
-
-    COMPANY_IDS: ClassVar[dict[int, str]] = {
-        0x0006: "Microsoft",
-        0x000F: "Broadcom",
-        0x001D: "Qualcomm",
-        0x004C: "Apple",
-        0x0057: "Harman",
-        0x0059: "Nordic Semiconductor",
-        0x0075: "Samsung",
-        0x0087: "Garmin",
-        0x009E: "Bose",
-        0x00E0: "Google",
-        0x00F0: "Intel",
-        0x012D: "Sony",
-        0x0131: "HP",
-        0x0180: "Meta",
-        0x038F: "Xiaomi",
-        0x0499: "Raspberry Pi",
-        0x05F1: "Anker",
-        0x06D6: "Logitech",
-    }
-
-    UUID_NAMES: ClassVar[dict[str, str]] = {
-        "00001101-0000-1000-8000-00805f9b34fb": "Serial Port",
-        "00001102-0000-1000-8000-00805f9b34fb": "LAN Access",
-        "00001103-0000-1000-8000-00805f9b34fb": "Dial-up Networking",
-        "00001105-0000-1000-8000-00805f9b34fb": "OBEX Object Push",
-        "00001106-0000-1000-8000-00805f9b34fb": "OBEX File Transfer",
-        "00001108-0000-1000-8000-00805f9b34fb": "Headset",
-        "0000110a-0000-1000-8000-00805f9b34fb": "Audio Source",
-        "0000110b-0000-1000-8000-00805f9b34fb": "Audio Sink",
-        "0000110c-0000-1000-8000-00805f9b34fb": "A/V Remote Control Target",
-        "0000110d-0000-1000-8000-00805f9b34fb": "Advanced Audio Distribution",
-        "0000110e-0000-1000-8000-00805f9b34fb": "A/V Remote Control",
-        "0000110f-0000-1000-8000-00805f9b34fb": "A/V Remote Control Controller",
-        "00001112-0000-1000-8000-00805f9b34fb": "Headset Audio Gateway",
-        "00001115-0000-1000-8000-00805f9b34fb": "PANU",
-        "00001116-0000-1000-8000-00805f9b34fb": "NAP",
-        "00001117-0000-1000-8000-00805f9b34fb": "GN",
-        "00001118-0000-1000-8000-00805f9b34fb": "Direct Printing",
-        "0000111a-0000-1000-8000-00805f9b34fb": "Imaging",
-        "0000111e-0000-1000-8000-00805f9b34fb": "Handsfree",
-        "0000111f-0000-1000-8000-00805f9b34fb": "Handsfree Audio Gateway",
-        "00001124-0000-1000-8000-00805f9b34fb": "Human Interface Device",
-        "0000112d-0000-1000-8000-00805f9b34fb": "SIM Access",
-        "0000112f-0000-1000-8000-00805f9b34fb": "Phonebook Access PCE",
-        "00001130-0000-1000-8000-00805f9b34fb": "Phonebook Access PSE",
-        "00001132-0000-1000-8000-00805f9b34fb": "Message Access Server",
-        "00001133-0000-1000-8000-00805f9b34fb": "Message Notification Server",
-        "00001134-0000-1000-8000-00805f9b34fb": "Message Access",
-        "0000113d-0000-1000-8000-00805f9b34fb": "GNSS",
-        "0000113e-0000-1000-8000-00805f9b34fb": "GNSS Server",
-        "00001200-0000-1000-8000-00805f9b34fb": "PnP Information",
-        "00001800-0000-1000-8000-00805f9b34fb": "Generic Access",
-        "00001801-0000-1000-8000-00805f9b34fb": "Generic Attribute",
-        "00001802-0000-1000-8000-00805f9b34fb": "Immediate Alert",
-        "00001803-0000-1000-8000-00805f9b34fb": "Link Loss",
-        "00001804-0000-1000-8000-00805f9b34fb": "Tx Power",
-        "00001805-0000-1000-8000-00805f9b34fb": "Current Time",
-        "0000180a-0000-1000-8000-00805f9b34fb": "Device Information",
-        "0000180d-0000-1000-8000-00805f9b34fb": "Heart Rate",
-        "0000180f-0000-1000-8000-00805f9b34fb": "Battery Service",
-        "00001810-0000-1000-8000-00805f9b34fb": "Blood Pressure",
-        "00001812-0000-1000-8000-00805f9b34fb": "Human Interface Device",
-        "00001816-0000-1000-8000-00805f9b34fb": "Cycling Speed and Cadence",
-        "00001818-0000-1000-8000-00805f9b34fb": "Cycling Power",
-        "00001819-0000-1000-8000-00805f9b34fb": "Location and Navigation",
-        "0000181a-0000-1000-8000-00805f9b34fb": "Environmental Sensing",
-        "0000181c-0000-1000-8000-00805f9b34fb": "User Data",
-        "0000181d-0000-1000-8000-00805f9b34fb": "Weight Scale",
-        "00001820-0000-1000-8000-00805f9b34fb": "Internet Protocol Support",
-        "00001822-0000-1000-8000-00805f9b34fb": "Pulse Oximeter",
-        "00001826-0000-1000-8000-00805f9b34fb": "Fitness Machine",
-        "00001827-0000-1000-8000-00805f9b34fb": "Mesh Provisioning",
-        "00001828-0000-1000-8000-00805f9b34fb": "Mesh Proxy",
-        "0000183a-0000-1000-8000-00805f9b34fb": "Insulin Delivery",
-        "0000183f-0000-1000-8000-00805f9b34fb": "Registered User",
-    }
-
-    MAJOR_CLASS_NAMES: ClassVar[dict[int, str]] = {
-        0: "Miscellaneous",
-        1: "Computer",
-        2: "Phone",
-        3: "LAN/Network Access",
-        4: "Audio/Video",
-        5: "Peripheral",
-        6: "Imaging",
-        7: "Wearable",
-        8: "Toy",
-        9: "Health",
-        31: "Uncategorized",
-    }
-
-    MINOR_CLASS_NAMES: ClassVar[dict[int, dict[int, str]]] = {
-        0: {i: f"Reserved/Unassigned ({i})" for i in range(64)},
-        1: {
-            0: "Uncategorized Computer",
-            1: "Desktop",
-            2: "Server",
-            3: "Laptop",
-            4: "Handheld PC/PDA",
-            5: "Palm-sized PC/PDA",
-            6: "Wearable Computer",
-            7: "Tablet",
-        },
-        2: {
-            0: "Uncategorized Phone",
-            1: "Cellular",
-            2: "Cordless",
-            3: "Smartphone",
-            4: "Wired Modem/Voice Gateway",
-            5: "ISDN",
-        },
-        3: {
-            0: "Fully Available",
-            1: "1%–17% Utilized",
-            2: "18%–33% Utilized",
-            3: "34%–50% Utilized",
-            4: "51%–67% Utilized",
-            5: "68%–83% Utilized",
-            6: "84%–100% Utilized",
-            7: "No service available",
-        },
-        4: {
-            0: "Uncategorized Audio/Video",
-            1: "Wearable Headset Device",
-            2: "Hands-free Device",
-            3: "Microphone",
-            4: "Loudspeaker",
-            5: "Headphones",
-            6: "Portable Audio",
-            7: "Car Audio",
-            8: "Set-top Box",
-            9: "HiFi Audio Device",
-            10: "VCR",
-            11: "Video Camera",
-            12: "Camcorder",
-            13: "Video Monitor",
-            14: "Video Display and Loudspeaker",
-            15: "Video Conferencing",
-            16: "Gaming/Toy",
-        },
-        5: {
-            0: "Uncategorized Peripheral",
-            1: "Joystick",
-            2: "Gamepad",
-            3: "Remote Control",
-            4: "Sensing Device",
-            5: "Digitizer Tablet",
-            6: "Card Reader",
-            7: "Digital Pen",
-            8: "Handheld Scanner",
-            9: "Handheld Gestural Input Device",
-        },
-        6: {
-            0: "Uncategorized Imaging",
-            1: "Display",
-            2: "Camera",
-            3: "Scanner",
-            4: "Printer",
-            5: "Scanner/Printer",
-        },
-        7: {
-            0: "Uncategorized Wearable",
-            1: "Wrist Watch",
-            2: "Sports Watch",
-            3: "Smart Ring",
-            4: "Athletic Shoe",
-        },
-        8: {
-            0: "Uncategorized Toy",
-            1: "Robot",
-            2: "Vehicle",
-            3: "Doll/Action Figure",
-            4: "Controller",
-        },
-        9: {
-            0: "Uncategorized Health",
-            1: "Blood Pressure Monitor",
-            2: "Thermometer",
-            3: "Weighing Scale",
-            4: "Glucose Meter",
-            5: "Pulse Oximeter",
-            6: "Heart/Pulse Rate Monitor",
-            7: "Health Data Display",
-        },
-    }
-
-    SERVICE_CLASS_NAMES: ClassVar[dict[int, str]] = {
-        13: "Limited Discoverable Mode",
-        14: "LE Audio",
-        16: "Positioning",
-        17: "Networking",
-        18: "Rendering",
-        19: "Capturing",
-        20: "Object Transfer",
-        21: "Audio",
-        22: "Telephony",
-        23: "Information",
-    }
+    # Re-exported from BluetoothConstants so external callers/tests can use them.
+    COMPANY_IDS = BluetoothConstants.COMPANY_IDS
+    UUID_NAMES = BluetoothConstants.UUID_NAMES
+    MAJOR_CLASS_NAMES = BluetoothConstants.MAJOR_CLASS_NAMES
+    MINOR_CLASS_NAMES = BluetoothConstants.MINOR_CLASS_NAMES
+    SERVICE_CLASS_NAMES = BluetoothConstants.SERVICE_CLASS_NAMES
 
     def __init__(self) -> None:
         if sys.platform != "linux":
