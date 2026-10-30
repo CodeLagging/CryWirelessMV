@@ -1,47 +1,40 @@
-import ipaddress
+"""NAT orchestration, host-config backup/restore, and client MTU resolution.
+
+The firewall primitives live in `firewall.py`, policy routing in `routing.py`,
+and diagnostics in `diag.py`. This module wires them into the high-level
+setup/teardown/fix/reset flow the AP uses, snapshots and restores the host's
+original network configuration, and resolves the MTU advertised to clients.
+
+The firewall / routing / diagnostics entry points that callers historically
+reached as ``netops.<name>`` are re-exported here so the split is transparent.
+"""
+
 import json
-import re
-import shlex
-import socket
 import subprocess
 from datetime import datetime
 from pathlib import Path
 
-# --- SECURITY FIX (Task 04): Strict Interface Name Validation ---
-IFACE_REGEX = re.compile(r'^[a-zA-Z0-9_-]{1,15}$')
-
-def validate_iface(name: str) -> str:
-    """Validate interface names before they are used in subprocess calls."""
-    if not name or not IFACE_REGEX.match(name):
-        raise ValueError(f"Invalid interface name: {name}. Must match {IFACE_REGEX.pattern}")
-    return name
-
-
-class _DummyResult:
-    def __init__(self):
-        self.stdout = ""
-        self.stderr = ""
-        self.returncode = 1
-
-
-def _run(cmd, check=False, capture=True, timeout=8):
-    if isinstance(cmd, str):
-        cmd = shlex.split(cmd)
-    try:
-        return subprocess.run(cmd, capture_output=capture, text=True,
-                              check=check, timeout=timeout)
-    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
-        return _DummyResult()
-
-
-def _run_checked(cmd, debug, what):
-    res = _run(cmd)
-    if res.returncode != 0:
-        stderr = (res.stderr or "").strip()
-        debug("warn", f"{what} failed (exit {res.returncode})"
-                       f"{': ' + stderr if stderr else ''} — command: {' '.join(cmd)}")
-    return res
-
+from core.APCC.diag import diagnose  # noqa: F401  (re-exported as netops.diagnose)
+from core.APCC.firewall import (
+    _deny_ap_services,
+    _unblock_ipv6_forwarding,
+    _warn_if_forward_blocked,
+    allow_ap_services,
+    block_ipv6_forwarding,
+    deisolate_ap_iface,
+    ensure_conntrack_headroom,
+    ensure_forwarding,
+    isolate_ap_iface,
+    set_client_timeout,  # noqa: F401  (re-exported as netops.set_client_timeout)
+    verify_nat,
+)
+from core.APCC.netutil import _run, _run_checked
+from core.APCC.routing import (
+    detect_gateway,  # noqa: F401  (re-exported as netops.detect_gateway)
+    setup_policy_routing,
+    teardown_policy_routing,
+)
+from core.validators import validate_iface
 
 BACKUP_MARKER = "scannerap_backup.json"
 
@@ -98,91 +91,12 @@ def _flush_mss_rules():
         _run(["iptables", "-t", "mangle", "-D", "FORWARD", str(n)])
 
 
-_AP_SVC_TAG = "scannerap_svc"
-
-# Core services a client must always be able to reach on the AP host itself:
-# DNS (so names resolve), DHCP (so it gets a lease), and ICMP (ping / PMTU).
-# Without these, a host whose INPUT policy is default-DROP (ufw, firewalld,
-# most servers) silently drops client DNS and the whole AP looks broken even
-# though forwarding is fine.
-_AP_SVC_MATCHES = [
-    ["-p", "udp", "--dport", "53"],
-    ["-p", "tcp", "--dport", "53"],
-    ["-p", "udp", "--dport", "67"],
-    ["-p", "icmp"],
-]
-
-
-def allow_ap_services(ap_iface: str, debug):
-    validate_iface(ap_iface)
-    _deny_ap_services(ap_iface)
-    for match in _AP_SVC_MATCHES:
-        _run(["iptables", "-I", "INPUT", "1", "-i", ap_iface, *match,
-              "-m", "comment", "--comment", _AP_SVC_TAG, "-j", "ACCEPT"])
-    debug("info", f"Ensured DNS/DHCP/ICMP from {ap_iface} clients are accepted "
-                   "(survives a default-deny INPUT policy).")
-
-
-def _deny_ap_services(ap_iface: str):
-    dump = _run(["iptables-save", "-t", "filter"]).stdout
-    for line in dump.splitlines():
-        if line.startswith("-A INPUT") and _AP_SVC_TAG in line:
-            _run(["iptables", *shlex.split(line.replace("-A INPUT", "-D INPUT", 1))])
-
-
-def ensure_conntrack_headroom(debug, minimum=32768):
-    """Raise nf_conntrack_max if it's small. Browsers and apps like Discord
-    open many simultaneous connections; a tiny table drops NEW connections
-    silently under load while a single steady flow keeps working."""
-    path = Path("/proc/sys/net/netfilter/nf_conntrack_max")
-    try:
-        current = int(path.read_text().strip())
-    except (OSError, ValueError):
-        return  # module not loaded / not applicable
-    if current >= minimum:
-        return
-    try:
-        path.write_text(f"{minimum}\n")
-        debug("info", f"Raised nf_conntrack_max {current} -> {minimum} "
-                       "(more room for simultaneous client connections).")
-    except (OSError, ValueError) as e:
-        debug("warn", f"Could not raise nf_conntrack_max (was {current}): {e}")
-
-
-def _ip6tables_available():
-    return _run(["ip6tables", "-L", "-n"]).returncode == 0
-
-
-def block_ipv6_forwarding(ap_iface: str, debug):
-    """We hand clients IPv4 only and don't NAT v6. Drop forwarded IPv6 on the
-    AP interface so clients don't half-attempt IPv6 (Happy-Eyeballs stalls) and
-    so nothing leaks out un-NATed if the host has v6 forwarding enabled."""
-    validate_iface(ap_iface)
-    if not _ip6tables_available():
-        return
-    _unblock_ipv6_forwarding(ap_iface)
-    for direction in ("-i", "-o"):
-        _run(["ip6tables", "-I", "FORWARD", "1", direction, ap_iface,
-              "-m", "comment", "--comment", _AP_SVC_TAG, "-j", "DROP"])
-    debug("info", f"IPv6 forwarding on {ap_iface} blocked (clients are IPv4-only "
-                   "here; prevents un-NATed v6 leaks and IPv6 connection stalls).")
-
-
-def _unblock_ipv6_forwarding(ap_iface: str):
-    if not _ip6tables_available():
-        return
-    dump = _run(["ip6tables-save", "-t", "filter"]).stdout
-    for line in dump.splitlines():
-        if line.startswith("-A FORWARD") and _AP_SVC_TAG in line:
-            _run(["ip6tables", *shlex.split(line.replace("-A FORWARD", "-D FORWARD", 1))])
-
-
 def snapshot_extra_file(save_dir: Path, path: str, debug, restart_unit=None):
     backup_dir = Path(save_dir) / "backup"
     backup_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = backup_dir / BACKUP_MARKER
 
-    manifest = {"timestamp": datetime.now().isoformat(), "ip_forward": None,
+    manifest: dict = {"timestamp": datetime.now().isoformat(), "ip_forward": None,
                 "saved_files": {}, "extra_saved_files": {}, "created_files": [],
                 "restart_units": {}}
     if manifest_path.is_file():
@@ -199,11 +113,6 @@ def snapshot_extra_file(save_dir: Path, path: str, debug, restart_unit=None):
                        or path in manifest["extra_saved_files"]
                        or path in manifest["created_files"])
     if already_tracked:
-
-
-
-
-
         if restart_unit and path not in manifest["restart_units"]:
             manifest["restart_units"][path] = restart_unit
             try:
@@ -243,9 +152,6 @@ def _restart_units_for(manifest, paths, iface, debug):
             debug("warn", f"Failed to restart {unit}: {res.stderr.strip()}")
             continue
         if iface:
-
-
-
             _run(["nmcli", "device", "set", iface, "managed", "no"])
         debug("ok", f"{unit} restarted.")
 
@@ -338,14 +244,6 @@ def restore_state(save_dir: Path, debug, iface=None):
     except (OSError, ValueError) as e:
         debug("warn", f"Could not restore ip_forward: {e}")
 
-
-
-
-
-
-
-
-
     teardown_policy_routing(iface, "", debug, quiet=True)
 
     touched = []
@@ -371,272 +269,6 @@ def restore_state(save_dir: Path, debug, iface=None):
     if touched:
         _restart_units_for(manifest, touched, iface, debug)
     return touched
-
-
-def set_client_timeout(ap_iface: str, mac: str, enabled: bool, debug):
-    validate_iface(ap_iface)
-    while True:
-        res = _run(["iptables", "-D", "FORWARD", "-i", ap_iface, "-m", "mac",
-                     "--mac-source", mac, "-j", "DROP"])
-        if res.returncode != 0:
-            break
-    if enabled:
-        _run_checked(["iptables", "-I", "FORWARD", "1", "-i", ap_iface, "-m", "mac",
-                       "--mac-source", mac, "-j", "DROP"], debug, f"Timing out {mac}")
-
-
-def ip_forward_is_enabled() -> bool:
-    try:
-        return Path("/proc/sys/net/ipv4/ip_forward").read_text().strip() == "1"
-    except OSError:
-        return False
-
-
-def enable_ip_forward():
-    try:
-        Path("/proc/sys/net/ipv4/ip_forward").write_text("1\n")
-    except (OSError, ValueError) as e:
-        print(f"[!] Could not enable ip_forward: {e}")
-
-
-def disable_ip_forward():
-    try:
-        Path("/proc/sys/net/ipv4/ip_forward").write_text("0\n")
-    except (OSError, ValueError) as e:
-        print(f"[!] Could not disable ip_forward: {e}")
-
-
-def _sysctl_read(path):
-    try:
-        return Path(path).read_text().strip()
-    except OSError:
-        return None
-
-
-def _sysctl_write(path, value):
-    try:
-        Path(path).write_text(f"{value}\n")
-        return True
-    except (OSError, ValueError) as e:
-        print(f"[!] Could not write {path}: {e}")
-        return False
-
-
-def ensure_forwarding(ap_iface: str, bridge_iface: str, debug):
-    """Global ip_forward is NOT sufficient on its own. The kernel also gates
-    routing on conf.all.forwarding and the per-interface forwarding flag, and
-    some systems (NetworkManager, sysctl.d, security hardening) leave one of
-    those at 0 — so packets are silently not routed even though our iptables
-    rules are perfect. Set and verify all of them."""
-    validate_iface(ap_iface)
-    if bridge_iface:
-        validate_iface(bridge_iface)
-
-    targets = [
-        "/proc/sys/net/ipv4/ip_forward",
-        "/proc/sys/net/ipv4/conf/all/forwarding",
-    ]
-    for iface in (ap_iface, bridge_iface):
-        if iface:
-            targets.append(f"/proc/sys/net/ipv4/conf/{iface}/forwarding")
-    stuck = []
-    for path in targets:
-        if _sysctl_read(path) is None:
-            continue  # not applicable on this kernel/iface
-        _sysctl_write(path, 1)
-        if _sysctl_read(path) != "1":
-            stuck.append(path)
-    if stuck:
-        debug("warn", "IP forwarding could not be enabled (stuck at 0): "
-                       + ", ".join(stuck) + " — something on the system is "
-                       "forcing it off (check sysctl.d, NetworkManager, or a "
-                       "hardening profile). Routing will not work until this is 1.")
-    return not stuck
-
-
-def iptables_backend():
-    out = (_run(["iptables", "-V"]).stdout or "").lower()
-    if "nf_tables" in out:
-        return "nf_tables"
-    if "legacy" in out:
-        return "legacy"
-    return "unknown"
-
-
-def isolate_ap_iface(ap_iface: str, debug):
-    validate_iface(ap_iface)
-    deisolate_ap_iface(ap_iface, debug, quiet=True)
-    # Clients still get DHCP/DNS from the AP in isolated mode — just no internet.
-    allow_ap_services(ap_iface, debug)
-    res = _run_checked(["iptables", "-I", "FORWARD", "1", "-i", ap_iface, "-j", "DROP"],
-                        debug, f"Isolating {ap_iface}")
-    disable_ip_forward()
-    if res.returncode == 0:
-        debug("info", f"{ap_iface} isolated — forwarding explicitly blocked "
-                        "(bridge/NAT is off).")
-    return res.returncode == 0
-
-
-def deisolate_ap_iface(ap_iface: str, debug, quiet=False):
-    validate_iface(ap_iface)
-    while True:
-        res = _run(["iptables", "-D", "FORWARD", "-i", ap_iface, "-j", "DROP"])
-        if res.returncode != 0:
-            break
-    if not quiet:
-        debug("info", f"{ap_iface} isolation rule removed.")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-PBR_TABLE_ID = 200
-PBR_RULE_PRIORITY = 10000
-
-
-def _iface_default_gateway(iface, debug=None):
-    validate_iface(iface)
-    res = _run(["ip", "route", "show", "table", "all", "default", "dev", iface])
-    for line in res.stdout.splitlines():
-        parts = line.split()
-        if "via" not in parts:
-            continue
-        try:
-            gw = parts[parts.index("via") + 1]
-        except IndexError:
-            continue
-        if ":" in gw:
-            continue
-        return gw
-    if debug:
-        debug("warn", f"No default-route gateway found for {iface} — "
-                       "it may be a directly-connected/static interface "
-                       "with no gateway of its own.")
-    return None
-
-
-def _rp_filter_path(iface):
-    return Path(f"/proc/sys/net/ipv4/conf/{iface}/rp_filter")
-
-
-# Original rp_filter values, captured the first time we loosen an interface so
-# teardown can put back exactly what the host had (0/1/2) instead of assuming 1.
-_rp_filter_saved = {}
-
-
-def _set_rp_filter(iface, value, debug):
-    try:
-        _rp_filter_path(iface).write_text(f"{value}\n")
-    except (OSError, ValueError) as e:
-        debug("warn", f"Could not set rp_filter for {iface}: {e}")
-
-
-def _loosen_one_rp_filter(iface, debug):
-    if not iface:
-        return
-    validate_iface(iface)
-    path = _rp_filter_path(iface)
-    try:
-        current = int(path.read_text().strip())
-    except (OSError, ValueError):
-        current = None
-    if iface not in _rp_filter_saved:
-        _rp_filter_saved[iface] = current
-    # 2 = loose mode; kernel uses max(conf.all, conf.iface), and 2 wins.
-    if current != 2:
-        _set_rp_filter(iface, 2, debug)
-
-
-def loosen_rp_filter(ap_iface: str, bridge_iface: str, debug):
-    _loosen_one_rp_filter(ap_iface, debug)
-    _loosen_one_rp_filter(bridge_iface, debug)
-
-
-def restore_rp_filter(ap_iface: str, bridge_iface: str, debug):
-    for iface in (ap_iface, bridge_iface):
-        if not iface or iface not in _rp_filter_saved:
-            continue
-        original = _rp_filter_saved.pop(iface)
-        if original is not None:
-            _set_rp_filter(iface, original, debug)
-
-
-def setup_policy_routing(ap_iface: str, bridge_iface: str, ip_range: str, debug,
-                          gateway_override: str | None = None):
-    validate_iface(ap_iface)
-    validate_iface(bridge_iface)
-    gateway = gateway_override or _iface_default_gateway(bridge_iface, debug)
-    if not gateway:
-        debug("warn", f"Policy routing not set up for {bridge_iface} "
-                       "(no gateway found) — falling back to whatever "
-                       "the main routing table picks by metric.")
-        return False
-
-    teardown_policy_routing(ap_iface, bridge_iface, debug, quiet=True)
-
-    _run(["ip", "route", "flush", "table", str(PBR_TABLE_ID)])
-    # Deliver AP-subnet traffic locally WITHIN this table. The `from <subnet>`
-    # rule also catches the host's own replies to clients (dnsmasq DNS answers,
-    # ICMP echo replies, the redirect server) because those are sourced from the
-    # gateway IP, which is inside the subnet. Without this connected route, the
-    # table's only entry is the default route, so every gateway->client reply is
-    # sent out the uplink instead of back to the client — clients then get a
-    # lease but no DNS answers and no gateway ping, i.e. "connected, no internet".
-    _run_checked(
-        ["ip", "route", "add", ip_range, "dev", ap_iface, "scope", "link",
-         "table", str(PBR_TABLE_ID)],
-        debug, f"Adding table-{PBR_TABLE_ID} local route for {ip_range} via {ap_iface}")
-    route_res = _run_checked(
-        ["ip", "route", "add", "default", "via", gateway, "dev", bridge_iface,
-         "table", str(PBR_TABLE_ID)], debug, f"Adding table-{PBR_TABLE_ID} route via {bridge_iface}")
-    rule_res = _run_checked(
-        ["ip", "rule", "add", "from", ip_range, "table", str(PBR_TABLE_ID),
-         "priority", str(PBR_RULE_PRIORITY)], debug, "Adding policy-routing ip rule")
-    if route_res.returncode != 0 or rule_res.returncode != 0:
-        debug("warn", "Policy routing was NOT fully applied — see the failure(s) "
-                       "above. Falling back to whatever the main routing table "
-                       "picks by metric.")
-        return False
-    loosen_rp_filter(ap_iface, bridge_iface, debug)
-
-    debug("ok", f"Policy routing: {ip_range} forced out {bridge_iface} "
-                 f"via {gateway} (table {PBR_TABLE_ID}) — main table and "
-                 "every other interface/rule left untouched.")
-    return True
-
-
-def teardown_policy_routing(ap_iface: str, bridge_iface: str, debug, quiet=False):
-    if ap_iface:
-        validate_iface(ap_iface)
-    if bridge_iface:
-        validate_iface(bridge_iface)
-    _run(["ip", "rule", "del", "priority", str(PBR_RULE_PRIORITY)])
-    _run(["ip", "route", "flush", "table", str(PBR_TABLE_ID)])
-    restore_rp_filter(ap_iface, bridge_iface, debug)
-    if not quiet:
-        debug("info", "Policy routing rule/table removed.")
-
-
-def detect_gateway(iface: str, debug=None):
-    return _iface_default_gateway(iface, debug)
 
 
 def setup_nat(ap_iface: str, bridge_iface: str, ip_range: str, debug,
@@ -681,14 +313,6 @@ def setup_nat(ap_iface: str, bridge_iface: str, ip_range: str, debug,
          "-o", bridge_iface, "-j", "MASQUERADE"],
         debug, f"Adding MASQUERADE for {ip_range} out {bridge_iface}")
 
-
-
-
-
-
-
-
-
     fwd1_res = _run_checked(
         ["iptables", "-I", "FORWARD", "1", "-i", bridge_iface, "-o", ap_iface,
          "-d", ip_range, "-m", "state", "--state", "RELATED,ESTABLISHED", "-j", "ACCEPT"],
@@ -731,21 +355,6 @@ def setup_nat(ap_iface: str, bridge_iface: str, ip_range: str, debug,
     verify_nat(ap_iface, bridge_iface, ip_range, debug,
                gateway=gateway_override)
     return True
-
-
-def _warn_if_forward_blocked(bridge_iface, debug):
-    res = _run(["iptables", "-L", "FORWARD", "-n"])
-    first_line = res.stdout.splitlines()[0] if res.stdout else ""
-    if "policy DROP" in first_line or "policy REJECT" in first_line:
-        debug("warn",
-              f"FORWARD chain default policy is {first_line.split('policy ')[-1].split(')')[0]} "
-              "— something else (commonly Docker, ufw, or firewalld) is "
-              "managing this chain. Our ACCEPT rules are inserted at the "
-              "top and should still win, but if that other tool reapplies "
-              "its own rules afterward (e.g. Docker restarting, `ufw "
-              "reload`), it can push ours back down or remove them. If "
-              "NAT stops passing traffic again with no changes on this "
-              "end, that's the first thing to check.")
 
 
 def teardown_nat(ap_iface: str, bridge_iface: str, ip_range: str, debug, quiet=False):
@@ -805,302 +414,3 @@ def reset_rules(ap_iface: str, bridge_iface: str, ip_range: str, debug,
         ok = isolate_ap_iface(ap_iface, debug)
     if ok:
         debug("ok", "Rules hard-reset and reapplied.")
-
-
-def _forward_policy():
-    res = _run(["iptables", "-L", "FORWARD", "-n"])
-    line = res.stdout.splitlines()[0] if res.stdout else ""
-    if "policy " in line:
-        return line.split("policy ", 1)[1].split(")")[0].strip()
-    return "unknown"
-
-
-def detect_host_firewall():
-    """Find host firewalls that enforce their own forward policy independently
-    of our iptables rules — the most common reason NAT silently fails even
-    though our rules look correct. Returns [(name, advice), ...]."""
-    findings = []
-
-    ufw = _run(["ufw", "status"])
-    if ufw.returncode == 0 and "status: active" in (ufw.stdout or "").lower():
-        findings.append(("ufw", ("ufw is active — it defaults to dropping forwarded "
-                                 "traffic. Set DEFAULT_FORWARD_POLICY=\"ACCEPT\" in "
-                                 "/etc/default/ufw and run 'ufw reload'.")))
-
-    fw = _run(["firewall-cmd", "--state"])
-    if fw.returncode == 0 and "running" in (fw.stdout or "").lower():
-        findings.append(("firewalld", ("firewalld is running — it owns the forward chain "
-                                        "and will drop our forwarded traffic unless the "
-                                        "uplink zone permits it (enable masquerade/forward "
-                                        "on the zone).")))
-
-    all_rules = _run(["iptables", "-S"]).stdout or ""
-    if "-P FORWARD DROP" in all_rules and "DOCKER" in all_rules:
-        findings.append(("docker", ("Docker is managing iptables (FORWARD policy DROP and "
-                                     "DOCKER chains present). It can reinsert its rules and "
-                                     "push ours down whenever the daemon or a container "
-                                     "restarts.")))
-
-    nft = _run(["nft", "list", "ruleset"])
-    if (nft.returncode == 0
-            and re.search(r"hook\s+forward\b", nft.stdout or "")
-            and re.search(r"hook\s+forward[^}]*?policy\s+drop", nft.stdout, re.DOTALL)):
-        findings.append(("nftables", ("A native nftables chain hooks 'forward' with "
-                                      "'policy drop'. nftables evaluates this independently "
-                                      "of our iptables rules, so it drops forwarded packets "
-                                      "regardless. Allow your AP subnet to forward in that "
-                                      "nft ruleset, or disable the conflicting firewall.")))
-    return findings
-
-
-def verify_nat(ap_iface: str, bridge_iface: str, ip_range: str, debug, gateway=None):
-    """Post-setup self-check: confirm the system is actually in a state where
-    forwarding can work, and surface the exact reason if not."""
-    validate_iface(ap_iface)
-    if bridge_iface:
-        validate_iface(bridge_iface)
-    ok = True
-    if _sysctl_read("/proc/sys/net/ipv4/ip_forward") != "1":
-        debug("error", "ip_forward is 0 — routing is disabled at the kernel level.")
-        ok = False
-
-    fwd_present = _run(["iptables", "-C", "FORWARD", "-i", ap_iface, "-o", bridge_iface,
-                        "-s", ip_range, "-j", "ACCEPT"]).returncode == 0
-    masq_present = _run(["iptables", "-t", "nat", "-C", "POSTROUTING", "-s", ip_range,
-                         "-o", bridge_iface, "-j", "MASQUERADE"]).returncode == 0
-    if not fwd_present:
-        debug("warn", "Our FORWARD ACCEPT rule is not present — another tool may have "
-                       "flushed or reordered it.")
-        ok = False
-    if not masq_present:
-        debug("warn", "Our MASQUERADE rule is not present.")
-        ok = False
-
-    for name, advice in detect_host_firewall():
-        debug("warn", f"[{name}] {advice}")
-        ok = False
-
-    if ok:
-        debug("ok", "NAT self-check passed: forwarding on, rules present, no host "
-                     "firewall overriding the forward path.")
-    else:
-        debug("warn", "NAT self-check found problems above — these are the likely "
-                       "reason clients can't reach the internet. Run 'diag' for detail.")
-    return ok
-
-
-def _chain_counters(table, chain):
-    args = ["iptables"]
-    if table:
-        args += ["-t", table]
-    args += ["-L", chain, "-v", "-n", "-x"]
-    return _run(args).stdout or ""
-
-
-def report_traffic_counters(ap_iface, bridge_iface, ip_range, debug):
-    """Read the live packet counters on the forward/NAT rules and the conntrack
-    table so we can see whether REAL client traffic (arriving over the air on
-    the AP iface) is actually being forwarded — the host-sourced ping test can't
-    show this because locally-generated packets skip the FORWARD chain."""
-    validate_iface(ap_iface)
-    if bridge_iface:
-        validate_iface(bridge_iface)
-    fwd_out = fwd_in = masq = None
-    for line in _chain_counters(None, "FORWARD").splitlines():
-        p = line.split()
-        if len(p) >= 7 and p[0].isdigit():
-            pkts, inif, outif = p[0], p[5], p[6]
-            if inif == ap_iface and outif == bridge_iface:
-                fwd_out = pkts
-            elif inif == bridge_iface and outif == ap_iface:
-                fwd_in = pkts
-    for line in _chain_counters("nat", "POSTROUTING").splitlines():
-        p = line.split()
-        if len(p) >= 7 and p[0].isdigit() and p[2] == "MASQUERADE" and p[6] == bridge_iface:
-            masq = p[0]
-
-    debug("info", f"forward counters: client->net ({ap_iface}->{bridge_iface})="
-                   f"{fwd_out if fwd_out is not None else '?'} pkts, "
-                   f"net->client ({bridge_iface}->{ap_iface})="
-                   f"{fwd_in if fwd_in is not None else '?'} pkts, "
-                   f"MASQUERADE={masq if masq is not None else '?'} pkts")
-
-    try:
-        prefix = str(ipaddress.ip_network(ip_range, strict=False).network_address)
-        prefix = prefix.rsplit(".", 1)[0] + "."
-    except (ValueError, TypeError, AttributeError):
-        prefix = None
-    flows = None
-    if prefix:
-        text = ""
-        try:
-            text = Path("/proc/net/nf_conntrack").read_text()
-        except OSError:
-            text = ""
-        if not text.strip():
-            # /proc/net/nf_conntrack can be empty/disabled even when tracking
-            # works; fall back to the conntrack tool (prints to stdout/stderr).
-            ct = _run(["conntrack", "-L"])
-            text = (ct.stdout or "") + (ct.stderr or "")
-        flows = len(re.findall(r"src=" + re.escape(prefix), text))
-    debug("info", f"conntrack flows sourced from {prefix or ip_range}x: "
-                   f"{flows if flows is not None else '?'}")
-    if fwd_out in ("0", None) and (flows in (0, None)):
-        debug("warn", "No forwarded client packets seen yet. Browse something on a "
-                       "client (with mobile data OFF so it can't use cellular), then run "
-                       "'diag' again: if client->net stays 0, the phone's data isn't "
-                       "reaching the AP over the air (driver/RF/power-save) — not a "
-                       "routing problem; if it climbs but there's still no internet, the "
-                       "break is past the AP.")
-
-
-def _iface_phy(iface):
-    validate_iface(iface)
-    try:
-        return Path(f"/sys/class/net/{iface}/phy80211/name").read_text().strip()
-    except OSError:
-        return None
-
-
-def _first_host(ip_range):
-    try:
-        net = ipaddress.ip_network(ip_range, strict=False)
-        return str(next(net.hosts()))
-    except (ValueError, TypeError, StopIteration):
-        return None
-
-
-def tcp_connect_probe(src_ip, host, port, timeout=4):
-    """Open a real TCP connection from the AP's LAN IP out through the NAT path,
-    to confirm TCP (not just ICMP) survives forwarding + MASQUERADE + the uplink
-    — the original 'small packets work, TCP apps fail' symptom lives here."""
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(timeout)
-        try:
-            s.bind((src_ip, 0))
-        except OSError:
-            pass
-        rc = s.connect_ex((host, port))
-        s.close()
-        return rc == 0
-    except (OSError, ValueError):
-        return False
-
-
-def dns_probe(server_ip, name="example.com", timeout=3):
-    """Send a minimal A-record query straight to a DNS server (our dnsmasq on
-    the AP gateway) and report whether it answers — tests the exact path a
-    client's DNS takes, without depending on dig/nslookup being installed."""
-    txid = b"\x12\x34"
-    header = txid + b"\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00"
-    q = b"".join(bytes([len(p)]) + p.encode() for p in name.split(".")) + b"\x00"
-    packet = header + q + b"\x00\x01\x00\x01"
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.settimeout(timeout)
-        s.sendto(packet, (server_ip, 53))
-        data, _ = s.recvfrom(512)
-        s.close()
-        ancount = int.from_bytes(data[6:8], "big")
-        return ancount > 0
-    except (OSError, ValueError):
-        return False
-
-
-def diagnose(ap_iface: str, bridge_iface: str, ip_range: str, debug, gateway=None):
-    validate_iface(ap_iface)
-    if bridge_iface:
-        validate_iface(bridge_iface)
-    debug("info", "=== bridge diagnostics ===")
-    debug("info", f"iptables backend: {iptables_backend()}")
-    debug("info", f"ip_forward={_sysctl_read('/proc/sys/net/ipv4/ip_forward')} "
-                   f"all.forwarding={_sysctl_read('/proc/sys/net/ipv4/conf/all/forwarding')}")
-    for iface in (ap_iface, bridge_iface):
-        if not iface:
-            continue
-        fwd = _sysctl_read(f"/proc/sys/net/ipv4/conf/{iface}/forwarding")
-        rpf = _sysctl_read(f"/proc/sys/net/ipv4/conf/{iface}/rp_filter")
-        off = _run(["ethtool", "-k", iface]).stdout or ""
-        on_offloads = [o for o in ("generic-receive-offload", "generic-segmentation-offload",
-                                    "tcp-segmentation-offload")
-                       if re.search(rf"^{o}: on", off, re.MULTILINE)]
-        offtxt = ("offloads ON: " + ", ".join(on_offloads)) if on_offloads else "offloads off"
-        debug("info", f"{iface}: forwarding={fwd} rp_filter={rpf}  ({offtxt})")
-
-    # Same-radio AP+STA: a very common reason a Wi-Fi AP "works" but clients
-    # drop and traffic stalls, even with perfect host-side rules.
-    phy_ap = _iface_phy(ap_iface)
-    phy_up = _iface_phy(bridge_iface) if bridge_iface else None
-    if phy_ap and phy_up and phy_ap == phy_up:
-        debug("warn", f"{ap_iface} (AP) and {bridge_iface} (uplink) are the SAME radio "
-                       f"({phy_ap}). Most Wi-Fi chips cannot reliably run an access point "
-                       "and a client uplink at the same time — the usual symptom is exactly "
-                       "this: clients connect then drop, and traffic doesn't pass. Use a "
-                       "separate Wi-Fi adapter or a wired uplink for the bridge.")
-
-    addr = _run(["ip", "-4", "addr", "show", "dev", ap_iface]).stdout or ""
-    addrs = re.findall(r"inet (\S+)", addr)
-    debug("info" if addrs else "warn",
-          f"{ap_iface} IPv4: {', '.join(addrs) if addrs else 'NONE (clients have no gateway to reach)'}")
-
-    debug("info", f"FORWARD policy: {_forward_policy()}")
-
-    if bridge_iface:
-        pbr = (_run(["ip", "route", "show", "table", str(PBR_TABLE_ID)]).stdout or "").strip()
-        pbr_line = pbr.replace("\n", "  |  ") if pbr else "empty"
-        has_local = ip_range.rsplit("/", 1)[0].rsplit(".", 1)[0] in pbr and " dev " + ap_iface in pbr
-        debug("info" if has_local else "warn",
-              f"policy table {PBR_TABLE_ID}: {pbr_line}"
-              + ("" if has_local else f"  — MISSING the local {ap_iface} route; "
-                 "gateway->client replies (DNS/ICMP) will be sent out the uplink"))
-
-    ap_gw = _first_host(ip_range)
-    if ap_gw:
-        dns_ok = dns_probe(ap_gw)
-        debug("info" if dns_ok else "warn",
-              f"DNS probe to dnsmasq at {ap_gw}: "
-              f"{'answered (resolution works for clients)' if dns_ok else 'NO ANSWER — clients cannot resolve names (dnsmasq down, wrong upstream, or port 53 blocked)'}")
-
-    if bridge_iface:
-        gw = gateway or _iface_default_gateway(bridge_iface)
-        debug("info", f"uplink {bridge_iface} gateway: {gw or 'unknown'}")
-        if gw:
-            ping = _run(["ping", "-c", "1", "-W", "2", "-I", bridge_iface, gw])
-            debug("info" if ping.returncode == 0 else "warn",
-                  f"ping gateway {gw} via {bridge_iface}: "
-                  f"{'reachable' if ping.returncode == 0 else 'FAILED (uplink may be down)'}")
-        # The decisive test: source a packet from the AP's LAN IP so it takes
-        # the exact policy-route + MASQUERADE path a client's traffic takes.
-        if ap_gw:
-            cp = _run(["ping", "-c", "1", "-W", "3", "-I", ap_gw, "8.8.8.8"])
-            icmp_ok = cp.returncode == 0
-            tcp_ok = tcp_connect_probe(ap_gw, "1.1.1.1", 443)
-            debug("ok" if icmp_ok else "warn",
-                  f"client-path ICMP (src {ap_gw} -> 8.8.8.8 through NAT): "
-                  f"{'works' if icmp_ok else 'FAILED'}")
-            debug("ok" if tcp_ok else "warn",
-                  f"client-path TCP (src {ap_gw} -> 1.1.1.1:443 through NAT): "
-                  f"{'works' if tcp_ok else 'FAILED'}")
-            if icmp_ok and tcp_ok:
-                debug("ok", "Full egress path works for AP-subnet-sourced traffic (ICMP+TCP). "
-                             "If real clients still fail, the break is NOT host routing/NAT — "
-                             "it's the client leg: the Wi-Fi data path on the AP radio, or the "
-                             "client isn't actually sending via this network (e.g. phone on "
-                             "cellular). Watch the forward counters below while a client browses.")
-            elif icmp_ok and not tcp_ok:
-                debug("warn", "ICMP works but TCP does not through the NAT path — this matches "
-                               "the 'small packets pass, apps fail' symptom. Suspect the uplink "
-                               "blocking/altering TCP, or an MSS/offload issue on the uplink NIC "
-                               "(try: ethtool -K <uplink> tx off gro off).")
-
-    ct_max = _sysctl_read("/proc/sys/net/netfilter/nf_conntrack_max")
-    ct_cnt = _sysctl_read("/proc/sys/net/netfilter/nf_conntrack_count")
-    debug("info", f"conntrack: count={ct_cnt or '?'} max={ct_max or 'module not loaded'}")
-
-    if bridge_iface:
-        report_traffic_counters(ap_iface, bridge_iface, ip_range, debug)
-        verify_nat(ap_iface, bridge_iface, ip_range, debug, gateway=gateway)
-    else:
-        debug("info", "No uplink set — AP is in isolated mode (no internet by design).")
-    debug("info", "=== end diagnostics ===")
