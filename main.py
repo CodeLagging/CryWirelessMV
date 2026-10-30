@@ -219,12 +219,17 @@ def cli_mode():
         return False
 
 if __name__ == "__main__":
-    if "--help" in sys.argv or "-h" in sys.argv:
+    if "--version" in sys.argv or "-V" in sys.argv:
+        from core._version import __version__
+        print(f"CryWirelessMV {__version__}")
+        sys.exit(0)
+    elif "--help" in sys.argv or "-h" in sys.argv:
         print("CryWirelessMV — WiFi & BLE Penetration Testing Tool")
         print("Usage: sudo python main.py")
         print()
         print("Options:")
         print("  -h, --help     Show this help message")
+        print("  -V, --version  Show the version and exit")
         sys.exit(0)
     else:
         startup()

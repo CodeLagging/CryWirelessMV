@@ -5,7 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [v1.0.0] — 2026-10-30
+
+First semantic-versioned release. Reconciles the fragmented version strings
+(pyproject, banner, tags) onto a single `1.0.0` source of truth and ships an
+automated tag-triggered x64 release workflow.
+
 ### Added
+- Automated tag-triggered x64 release workflow (`.github/workflows/release.yml`)
+- `core/_version.py` single source of truth; `main.py --version` / `-V` flag
+- Unit tests for `CommandRouter`, `settings.validate_settings`, and domain filter/control (66 tests; coverage floor raised to 15%)
 - `THREAT_MODEL.md` — trust boundaries, untrusted radio input, subprocess-safety model
 - `core/log_config.py` — structured logging (rotating file handler + levels); `debug()` now mirrors to it
 - `docker-compose.yml` — one-command startup (`docker compose run --rm cwmv`) with USB/host passthrough
@@ -22,6 +31,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - 82 new unit tests: validators, netops MTU/MSS helpers, command on/off parsing
 
 ### Changed
+- Version reconciled to `1.0.0` across pyproject, banner, and CHANGELOG (was 0.1.0 / 9.4 / V8.2)
 - `scanner_ap.py` refactored from 1413 → 668 LOC via mixin extraction
 - `netops.py` reduced 1099 → 416 LOC; no file in `core/` now exceeds 500 LOC
 - `validate_iface` deduplicated out of `scanner_ap.py` and `netops.py` into `core/validators.py`

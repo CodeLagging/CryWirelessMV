@@ -6,6 +6,17 @@ import time
 
 from debugs import debug
 
+try:
+    from core._version import __version__
+except ImportError:  # running standalone without core on the path
+    __version__ = "1.0.0"
+
+
+def _title_box(title, width=58):
+    print("\n╔" + "═" * width + "╗")
+    print("║" + title.center(width) + "║")
+    print("╚" + "═" * width + "╝")
+
 
 def check_os():
     if platform.system() == "Windows":
@@ -24,7 +35,7 @@ def print_banner():
         "║  ╚██████╗██║  ██║   ██║         ╚███╔███╔╝██║██║     ██║  ║",
         "║   ╚═════╝╚═╝  ╚═╝   ╚═╝          ╚══╝╚══╝ ╚═╝╚═╝     ╚═╝  ║",
         "║                                                           ║",
-        "║                      Version 9.4                          ║",
+        "║                      Version 1.0.0                        ║",
         "║            WiFi & BLE Penetration Testing Tool            ║",
         "║                 Created By - CodeLagging                  ║",
         "╚═══════════════════════════════════════════════════════════╝",
@@ -58,29 +69,19 @@ def print_banner():
 
 
 def bluetooth():
-    print("\n╔═════════════════════════════════════════════════════════════════════════╗")
-    print("║                    CryWireless V8 - Bluetooth Scanner                   ║")
-    print("╚═════════════════════════════════════════════════════════════════════════╝")
+    _title_box(f"CryWirelessMV v{__version__} — Bluetooth Scanner")
 
 def scan_results():
-    print("\n╔════════════════════════════════════════════════════════════════════════╗")
-    print("║                             Scan Summary                               ║")
-    print("╚════════════════════════════════════════════════════════════════════════╝")
+    _title_box("Scan Summary")
 
 def ble_menu():
-    print("\n╔════════════════════════════════════════════════════════╗")
-    print("║          CryWireless V8 - BLE Attack Module            ║")
-    print("╚════════════════════════════════════════════════════════╝")
+    _title_box(f"CryWirelessMV v{__version__} — BLE Attack Module")
 
 def wifi_attack():
-    print("\n╔════════════════════════════════════════════════════════╗")
-    print("║            CryWireless V8 - Attack Mode                ║")
-    print("╚════════════════════════════════════════════════════════╝")
+    _title_box(f"CryWirelessMV v{__version__} — Attack Mode")
 
 def other_attacks():
-    print("\n╔════════════════════════════════════════════════════════╗")
-    print("║              Other Attacks Available                   ║")
-    print("╚════════════════════════════════════════════════════════╝")
+    _title_box("Other Attacks Available")
 
 if __name__ == "__main__":
     bluetooth()
