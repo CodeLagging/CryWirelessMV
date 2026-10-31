@@ -1,3 +1,4 @@
+import errno
 import http.server
 import json
 import threading
@@ -247,8 +248,16 @@ class RedirectServer:
         try:
             self._server = http.server.ThreadingHTTPServer((gateway_ip, 80), handler)
         except OSError as e:
-            self.debug("warn", f"Could not start the redirect server on "
-                                f"{gateway_ip}:80: {e}")
+            if e.errno == errno.EADDRINUSE:
+                self.debug("warn",
+                           f"Captive-portal redirect server could not bind {gateway_ip}:80 "
+                           "— another process already holds port 80 (a local web server, "
+                           "Docker, etc.). Domain blocks/sinkholes still work; only HTTP "
+                           "redirects are affected. Free port 80 (e.g. 'ss -ltnp | grep :80') "
+                           "and re-run, or disable the conflicting service.")
+            else:
+                self.debug("warn", f"Could not start the redirect server on "
+                                    f"{gateway_ip}:80: {e}")
             self._server = None
             return
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
