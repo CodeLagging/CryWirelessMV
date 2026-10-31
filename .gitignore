@@ -51,3 +51,6 @@ comment_backup
 .coverage
 htmlcov/
 .pytest_cache/
+
+# Local reliability report (not tracked)
+RELIABILITY_REPORT.md
