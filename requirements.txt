@@ -51,7 +51,7 @@ pyyaml==6.0.3
     # via cwmv-development
 rich==15.0.0
     # via textual
-scapy==2.7.0
+scapy==2.8.0
     # via cwmv-development
 setuptools==84.2.1
     # via
