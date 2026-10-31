@@ -1,9 +1,18 @@
 import os
 import sys
 
+import pytest
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.WIFI.scanner import CHANNELS_5, CHANNELS_24, FILTER_MODES, Scanner
+
+
+class _FakeRun:
+    def __init__(self, stdout):
+        self.stdout = stdout
+        self.stderr = ""
+        self.returncode = 0
 
 
 def test_ch_to_freq_2_4ghz():
@@ -53,3 +62,38 @@ def test_get_ssid_handles_hidden_ssid():
            / Dot11Beacon()
            / Dot11Elt(ID=0, info=b""))
     assert Scanner._get_ssid(pkt) == "<hidden>"
+
+
+# --- _resolve_iface_name ---------------------------------------------------
+
+def _scanner(tmp_path):
+    return Scanner("wlan0", savepath=str(tmp_path))
+
+
+def test_resolve_iface_name_passthrough(tmp_path):
+    s = _scanner(tmp_path)
+    assert s._resolve_iface_name("wlan1") == "wlan1"
+    assert s._resolve_iface_name("  wlan0  ") == "wlan0"  # stripped
+
+
+def test_resolve_iface_name_by_index(tmp_path, monkeypatch):
+    s = _scanner(tmp_path)
+    monkeypatch.setattr(Scanner, "_run",
+                        lambda *a, **k: _FakeRun("Interface wlan0\nInterface wlan1\n"))
+    assert s._resolve_iface_name("0") == "wlan0"
+    assert s._resolve_iface_name("1") == "wlan1"
+
+
+def test_resolve_iface_name_index_out_of_range(tmp_path, monkeypatch):
+    s = _scanner(tmp_path)
+    monkeypatch.setattr(Scanner, "_run",
+                        lambda *a, **k: _FakeRun("Interface wlan0\n"))
+    with pytest.raises(RuntimeError):
+        s._resolve_iface_name("5")
+
+
+def test_resolve_iface_name_no_interfaces(tmp_path, monkeypatch):
+    s = _scanner(tmp_path)
+    monkeypatch.setattr(Scanner, "_run", lambda *a, **k: _FakeRun(""))
+    with pytest.raises(RuntimeError):
+        s._resolve_iface_name("0")

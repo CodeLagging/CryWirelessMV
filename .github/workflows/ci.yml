@@ -24,4 +24,4 @@ jobs:
       - name: Audit dependencies
         run: uv run pip-audit
       - name: Run Tests
-        run: uv run pytest tests/ -v --cov=core --cov-report=term-missing --cov-fail-under=15
+        run: uv run pytest tests/ -v --cov=core --cov-report=term-missing --cov-fail-under=18
