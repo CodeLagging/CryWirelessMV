@@ -63,3 +63,23 @@ def test_log_at_before_configure_is_silent(capsys):
     captured = capsys.readouterr()
     assert "should stay silent" not in captured.out
     assert "should stay silent" not in captured.err
+
+
+# --- privileged-path integration -------------------------------------------
+
+def test_bluetooth_warn_emits_warning_record(caplog):
+    """A simulated BT failure routes through structured logging at WARNING."""
+    from core.BT_HCI.bluetooth import _warn
+    with caplog.at_level(logging.WARNING, logger="cwmv"):
+        _warn("simulated dbus failure")
+    assert any(r.levelno == logging.WARNING and "simulated dbus failure" in r.message
+               for r in caplog.records)
+
+
+def test_scanner_error_event_logs_warning(caplog, tmp_path):
+    """A '[!]'-prefixed scanner event is logged at WARNING level."""
+    from core.WIFI.scanner import Scanner
+    s = Scanner("wlan0", savepath=str(tmp_path))
+    with caplog.at_level(logging.INFO, logger="cwmv"):
+        s._log_event("[!] simulated monitor-mode failure")
+    assert any(r.levelno == logging.WARNING for r in caplog.records)

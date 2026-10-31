@@ -23,6 +23,7 @@ from core.APCC.domain_filter import DomainFilter
 from core.APCC.line_editor import LineEditorMixin
 from core.APCC.logging_ap import APLogger
 from core.APCC.termkeys import TermKeys
+from core.log_config import log_at
 from core.validators import validate_iface
 
 
@@ -537,6 +538,10 @@ class ScannerAP(LineEditorMixin, APCommandHandlersMixin):
     _RESET = "\033[0m"
 
     def _log(self, level, msg):
+        # Forensic trail: every netops/firewall/routing/diag/command message
+        # funnels through here, so this is the single hook that routes all
+        # privileged iptables/hostapd/dnsmasq operations into structured logging.
+        log_at(level, msg)
         label, color = self._LEVEL_STYLE.get(level, (level.upper(), ""))
         ts = datetime.now().strftime("%H:%M:%S")
         if color and sys.stdout.isatty():

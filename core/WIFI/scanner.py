@@ -30,6 +30,8 @@ from scapy.all import (
 )
 from scapy.error import Scapy_Exception
 
+from core.log_config import get_logger
+
 CHANNELS_24 = list(range(1, 14))
 CHANNELS_5 = [36, 40, 44, 48, 52, 56, 60, 64, 100, 104, 108, 112, 116, 120,
               124, 128, 132, 136, 140, 144, 149, 153, 157, 161, 165]
@@ -318,6 +320,9 @@ class Scanner:
         self._newline_if_status()
         ts = datetime.now().strftime("%H:%M:%S")
         line = f"[{ts}] {text}"
+        # Structured forensic log; "[!]" marks a warning/error path.
+        _logger = get_logger()
+        (_logger.warning if "[!]" in text else _logger.info)(text)
         print(line)
         if self.saving and self.session_dir:
             with self._lock:

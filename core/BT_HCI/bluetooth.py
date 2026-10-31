@@ -15,6 +15,13 @@ from pathlib import Path
 from typing import Any
 
 from core.BT_HCI.ble_constants import BluetoothConstants
+from core.log_config import get_logger
+
+
+def _warn(msg: str) -> None:
+    """Log a failure to the structured log and still show it on the console."""
+    get_logger().warning(msg)
+    print(f"[!] {msg}")
 
 
 @dataclass
@@ -188,7 +195,7 @@ class bluetooth:
             gid = int(os.environ.get("SUDO_GID", uid))
             os.chown(path, uid, gid)
         except (KeyError, ValueError, OSError) as exc:
-            print(f"[!] Could not restore ownership of {path}: {exc}")
+            _warn(f"Could not restore ownership of {path}: {exc}")
 
     async def start_scan(self) -> None:
         await self._connect_bluez()
@@ -210,7 +217,7 @@ class bluetooth:
                     }
                 )
         except (AttributeError, ValueError) as exc:
-            print(f"[!] Could not set discovery filter: {exc}")
+            _warn(f"Could not set discovery filter: {exc}")
 
         try:
             await self.adapter.call_start_discovery()
@@ -228,7 +235,7 @@ class bluetooth:
         try:
             await self.adapter.call_stop_discovery()
         except (OSError, RuntimeError) as exc:
-            print(f"[!] Could not cleanly stop discovery: {exc}")
+            _warn(f"Could not cleanly stop discovery: {exc}")
         finally:
             self._scanning = False
 
@@ -493,7 +500,7 @@ class bluetooth:
                     )
                 )
             except (OSError, ValueError) as exc:
-                print(f"[!] Could not add D-Bus match rule ({rule}): {exc}")
+                _warn(f"Could not add D-Bus match rule ({rule}): {exc}")
 
     async def _ensure_adapter_ready(self) -> None:
         if self.adapter_props is None:
@@ -612,7 +619,7 @@ class bluetooth:
                 try:
                     setter(props[prop])
                 except (ValueError, TypeError, AttributeError) as exc:
-                    print(f"[!] Could not apply property {prop}={props[prop]!r}: {exc}")
+                    _warn(f"Could not apply property {prop}={props[prop]!r}: {exc}")
 
         device.major, device.minor, device.services = self.decode_class(device.class_code)
         device.vendor = self.lookup_vendor(device)
@@ -633,7 +640,7 @@ class bluetooth:
                 device.battery = int(percentage)
                 self._dirty = True
             except (ValueError, TypeError) as exc:
-                print(f"[!] Could not parse battery percentage {percentage!r}: {exc}")
+                _warn(f"Could not parse battery percentage {percentage!r}: {exc}")
 
     def _format_device_details(self, device: DeviceRecord) -> str:
         title = device.title()
