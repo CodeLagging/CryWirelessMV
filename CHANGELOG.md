@@ -5,6 +5,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [v1.0.1] — 2026-10-31
+
+Reliability fixes from a full live hardware test pass against a WPA2 AP.
+
+### Fixed
+- Declared `dbus-next` dependency — the Bluetooth scanner was non-functional on a clean install (it is lazy-imported)
+- Declared `textual` dependency — the APCC Textual UI could not load and silently fell back to the classic console
+- `rfkill unblock` the Bluetooth adapter before bring-up in both the BLE module and the BT scanner; soft-rfkill (a common default) left the radio down even though `hciconfig`/BlueZ reported success
+- Actionable error message when the captive-portal redirect server cannot bind port 80
+- Corrected `generate_dnsmasq_conf` return annotation to `tuple[str, str]`
+- Stopped `auth_dos`/`probe_dos` re-exports in `core/WIFI/__init__.py` from shadowing their submodules
+
+### Added
+- Unit tests for `CommandRouter`, `settings.validate_settings`, domain filter/control, scanner interface resolution, and `DeviceRecord.title` (coverage floor raised to 18%)
+- `requirements.txt` kept in sync with the lockfile, enforced by a CI drift check
+- Structured logging routed through privileged error paths (`netops`/`scanner`/`bluetooth`/APCC)
+- `conntrack` and `rfkill` added to the README apt install list; `.env.example` populated
+
 ## [v1.0.0] — 2026-10-30
 
 First semantic-versioned release. Reconciles the fragmented version strings
