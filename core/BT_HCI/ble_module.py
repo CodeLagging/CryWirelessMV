@@ -127,6 +127,13 @@ class BleModule:
 
     def _startble(self, hci_dev=0):
         hci_dev = f"hci{hci_dev}"
+        # Soft-rfkill is a common default. Without unblocking first, `hciconfig up`
+        # returns success but the radio stays down, and advertising then fails with
+        # OSError Errno 100 (Network is down). Best-effort; harmless if already clear.
+        try:
+            subprocess.run(["rfkill", "unblock", "bluetooth"], check=False, capture_output=True)
+        except (FileNotFoundError, OSError):
+            pass
         try:
             subprocess.run(["hciconfig", hci_dev, "up"], check=True, capture_output=True)
             return

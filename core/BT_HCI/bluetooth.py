@@ -508,6 +508,16 @@ class bluetooth:
 
         from dbus_next import Variant
 
+        # Clear a soft-rfkill block first; BlueZ cannot power the adapter on
+        # (org.bluez.Error.Blocked) while it is rfkill-blocked. Best-effort.
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "rfkill", "unblock", "bluetooth",
+                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
+            await proc.wait()
+        except (FileNotFoundError, OSError):
+            pass
+
         try:
             powered = await self.adapter_props.call_get(self.ADAPTER, "Powered")
             if not bool(self._unwrap(powered)):
