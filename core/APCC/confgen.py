@@ -144,7 +144,7 @@ def generate_hostapd_conf(settings: dict, iface: str) -> str:
 
 
 def generate_dnsmasq_conf(settings: dict, iface: str, lease_file: str,
-                          extra_lines=None, mtu=0, upstream_dns=None) -> str:
+                          extra_lines=None, mtu=0, upstream_dns=None) -> tuple[str, str]:
     s = settings
     network = ipaddress.ip_network(s["ip_range"], strict=False)
     gateway = str(next(iter(network.hosts())))
