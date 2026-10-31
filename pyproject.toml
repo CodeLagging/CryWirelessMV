@@ -52,6 +52,7 @@ module = [
     "core.set_path",
     "core.APCC.confgen",
     "core.APCC.settings_ui",
+    "core.APCC.tui",
     "core.BT_HCI.bluetooth",
     "core.WIFI.scanner",
     "core.WIFI.handshake_module",
