@@ -37,6 +37,8 @@ sudo apt install -y \
   bluez \
   bluetooth \
   hcxtools \
+  conntrack \
+  rfkill \
   build-essential \
   python3-dev \
   libpcap-dev
