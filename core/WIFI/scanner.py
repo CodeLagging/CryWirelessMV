@@ -2,14 +2,11 @@
 import json
 import os
 import re
-import select
 import shlex
 import subprocess
 import sys
-import termios
 import threading
 import time
-import tty
 import uuid
 from collections import defaultdict, deque
 from datetime import datetime
@@ -31,6 +28,7 @@ from scapy.all import (
 from scapy.error import Scapy_Exception
 
 from core.log_config import get_logger
+from core.WIFI.raw_key_reader import RawKeyReader
 
 CHANNELS_24 = list(range(1, 14))
 CHANNELS_5 = [36, 40, 44, 48, 52, 56, 60, 64, 100, 104, 108, 112, 116, 120,
@@ -51,46 +49,7 @@ LOCK_TARGETS = {
 
 class Scanner:
 
-    class RawKeyReader:
-
-        def __init__(self):
-            self.fd = sys.stdin.fileno()
-            self.old_settings = None
-
-        def __enter__(self):
-            try:
-                self.old_settings = termios.tcgetattr(self.fd)
-                tty.setcbreak(self.fd)
-            except termios.error:
-                self.old_settings = None
-            return self
-
-        def __exit__(self, *a):
-            if self.old_settings:
-                termios.tcsetattr(self.fd, termios.TCSADRAIN, self.old_settings)
-
-        def getch(self, timeout=0.2):
-            r, _, _ = select.select([sys.stdin], [], [], timeout)
-            if r:
-                return sys.stdin.read(1)
-            return None
-
-        def prompt_line(self, msg, hide=False):
-            if self.old_settings:
-                termios.tcsetattr(self.fd, termios.TCSADRAIN, self.old_settings)
-            try:
-                if hide:
-                    import getpass
-                    val = getpass.getpass(msg)
-                else:
-                    val = input(msg)
-            finally:
-                try:
-                    tty.setcbreak(self.fd)
-                    termios.tcflush(self.fd, termios.TCIFLUSH)
-                except termios.error:
-                    pass
-            return val
+    RawKeyReader = RawKeyReader
 
     @staticmethod
     def _ch_to_freq(ch: int) -> int:
