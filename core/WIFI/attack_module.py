@@ -10,9 +10,10 @@ from .deauth import deauth_all
 from .disassoc import disassoc_all
 from .handshake_module import handshake
 from .michael_mic import michael_mic_dos
+from .pmkid_module import PmkidArgs, pmkid
 from .probe_dos import probe_dos
 from .quiet_device import quiet_flood, quiet_targeted
-from .pmkid_module import pmkid, PmkidArgs
+
 
 class AttackModule:
     deauth_all = staticmethod(deauth_all)
