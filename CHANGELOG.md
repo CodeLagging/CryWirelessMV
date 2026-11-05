@@ -5,6 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [v1.0.3] — 2026-11-05
+
+### Changed
+- Emptied `core/WIFI/__init__.py` to match the other packages; removed the re-export
+  layer (and with it an `__all__`/import inconsistency). Importers now pull from submodules.
+- Reconciled all version strings to `1.0.3`.
+
+## [v1.0.2] — 2026-11-05
+
+### Added
+- PMKID capture module (`pmkid_module.py`) — clientless WPA PMKID collection with hc22000 output
+- Reworked the handshake capture into a callable module
+
 ## [v1.0.1] — 2026-10-31
 
 Reliability fixes from a full live hardware test pass against a WPA2 AP.

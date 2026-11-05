@@ -9,7 +9,7 @@ from debugs import debug
 try:
     from core._version import __version__
 except ImportError:  # running standalone without core on the path
-    __version__ = "1.0.0"
+    __version__ = "1.0.3"
 
 
 def _title_box(title, width=58):
