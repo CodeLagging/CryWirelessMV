@@ -119,8 +119,10 @@ class _PmkidCaptureModule:
         return True
 
     def _build_rsn_ie_with_pmkid(self) -> bytes:
-        fake_pmkid = b"\x00" * 16
-        return self.rsn_ie_body + b"\x00\x01" + fake_pmkid
+        body = self.rsn_ie_body
+        if body is None:
+            return b""
+        return body + b"\x00\x01" + b"\x00" * 16
 
     def _send_auth_assoc(self, use_pmkid: bool = False) -> None:
         client = self.client_mac
