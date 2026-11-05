@@ -8,6 +8,7 @@ from .bad_message import bad_message_flood, bad_message_targeted
 from .csa_attack import flood_csa, targeted_csa
 from .deauth import deauth_all
 from .disassoc import disassoc_all
+from .handshake_module import handshake
 from .michael_mic import michael_mic_dos
 from .probe_dos import probe_dos
 from .quiet_device import quiet_flood, quiet_targeted
@@ -27,3 +28,4 @@ class AttackModule:
     bad_message_targeted = staticmethod(bad_message_targeted)
     quiet_flood = staticmethod(quiet_flood)
     quiet_targeted = staticmethod(quiet_targeted)
+    handshake = staticmethod(handshake)
