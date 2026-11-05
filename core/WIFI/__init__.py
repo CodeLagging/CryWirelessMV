@@ -1,7 +1,6 @@
 from .ap_flood import access_point_flood
 from .attack_module import AttackModule
 from .deauth import deauth_all
-from .handshake_module import HandshakeCaptureModule
 from .michael_mic import michael_mic_dos
 from .module_setup import ModuleSetup
 
@@ -12,7 +11,6 @@ from .module_setup import ModuleSetup
 
 __all__ = [
     "AttackModule",
-    "HandshakeCaptureModule",
     "ModuleSetup",
     "access_point_flood",
     "deauth_all",
