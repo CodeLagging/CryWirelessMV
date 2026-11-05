@@ -1,13 +1,24 @@
 from __future__ import annotations
 
-import os
 import random
 import signal
 import struct
 import time
 from dataclasses import dataclass
 
-from scapy.all import EAPOL, Dot11, Dot11AssoReq, Dot11Auth, Dot11Beacon, Dot11Elt, Dot11ProbeResp, RadioTap, Scapy_Exception, sendp, sniff
+from scapy.all import (
+    EAPOL,
+    Dot11,
+    Dot11AssoReq,
+    Dot11Auth,
+    Dot11Beacon,
+    Dot11Elt,
+    Dot11ProbeResp,
+    RadioTap,
+    Scapy_Exception,
+    sendp,
+    sniff,
+)
 
 from debugs import debug
 
