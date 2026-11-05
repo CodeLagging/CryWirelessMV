@@ -10,6 +10,7 @@ from scapy.error import Scapy_Exception
 from scapy.layers.dot11 import Dot11, Dot11Beacon, Dot11Elt
 
 import banner
+from core.WIFI.handshake_module import HandshakeArgs
 from debugs import debug
 
 from .attack_module import AttackModule
@@ -238,6 +239,7 @@ class ModuleSetup:
             print("7. Action Frames")
             print("8. Bad Message Targeted")
             print("9. Quiet Targeted")
+            print("10. Four-way Handshake")
             print("0. Exit")
             atkmode = input("\nAttack Mode: ").strip()
 
@@ -257,16 +259,13 @@ class ModuleSetup:
                 elif atkmode == "4" or atkmode.lower() == "probe flood dos":
                     try:
                         channel = int(channel)
+                        break
                     except (ValueError, TypeError):
-                        debug("warn", "Invalid channel detected. please enter channel manually")
-                    while True:
-                        try:
+                        while True:
+                            debug("warn", "Invalid channel detected. please enter channel manually")
                             channel = int(input("Target Channel: "))
-                            break
-                        except ValueError:
-                            debug("warn", "Still an Invalid channel")
-                    AttackModule.probe_dos(self.interface, channel)
-                    running = True
+                            AttackModule.probe_dos(self.interface, channel)
+                            running = True
                 elif AttackModule.disassoc_all and (atkmode == "5" or atkmode.lower() == "disassociation denial of service"):
                     AttackModule.disassoc_all(self.interface, chosen_bssid)
                     running = True
@@ -299,6 +298,24 @@ class ModuleSetup:
                         except (TypeError, ValueError):
                             channel = None
                     AttackModule.quiet_targeted(self.interface, chosen_bssid, ssid, channel)
+                    running = True
+                elif atkmode == "10" or atkmode.lower() == "four-way handshake":
+                    debug("info", "Four-way Handshake running...")
+                    if channel is None:
+                        debug("critical", "Handshake requires a channel; aborting")
+                        return
+                    try:
+                        channel_int = int(channel)
+                    except (TypeError, ValueError):
+                        debug("critical", f"Invalid channel: {channel!r}")
+                        return
+                    res = AttackModule.handshake(HandshakeArgs(interface=self.interface, bssid=chosen_bssid, channel=channel_int, ssid=ssid, output_path=f"{ssid}.hc22000",))
+                    if res.success and res.hashcat_line:
+                        debug("ok", f"Handshake captured: {res.hashcat_line}")
+                        if res.output_file:
+                            debug("info", f"Saved to {res.output_file}")
+                    else:
+                        debug("warn", f"Handshake failed: {res.error or 'unknown'}")
                     running = True
             except KeyboardInterrupt:
                 debug("info", "Attack interrupted")
