@@ -15,4 +15,7 @@ __all__ = [
     "access_point_flood",
     "deauth_all",
     "michael_mic_dos",
+    "PmkidCaptureModule",
+    "PmkidArgs",
+    "PmkidResult",
 ]
