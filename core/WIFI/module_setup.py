@@ -240,6 +240,7 @@ class ModuleSetup:
             print("8. Bad Message Targeted")
             print("9. Quiet Targeted")
             print("10. Four-way Handshake")
+            print("11. PMKID Capture")
             print("0. Exit")
             atkmode = input("\nAttack Mode: ").strip()
 
