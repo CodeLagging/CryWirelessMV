@@ -14,7 +14,7 @@ from colorama import Fore, Style, init
 init()
 
 def startup():
-    global debug, banner, ModuleSetup, HandshakeCaptureModule, BleModule, bluetooth, Scanner, ScannerAP
+    global debug, banner, ModuleSetup, BleModule, bluetooth, Scanner, ScannerAP
     try:
         import banner
         from core.log_config import configure_logging
@@ -47,13 +47,6 @@ def startup():
     except ImportError:
         bluetooth = None
         missing.append("bluetooth") # bluetooth is optional, but its nice to have
-    try: 
-        from core.WIFI import HandshakeCaptureModule
-        globals()['HandshakeCaptureModule'] = HandshakeCaptureModule
-    except ImportError: 
-        HandshakeCaptureModule = None
-        missing.append("handshake") # youll love this, dont leave it
-    
     try:
         from core.WIFI.scanner import Scanner
         globals()['Scanner'] = Scanner
@@ -69,7 +62,7 @@ def startup():
         missing.append("scanner_ap") # ooh this is cool
     
     missing_set = set(missing)
-    required_modules = {"wifi", "handshake", "ble"}
+    required_modules = {"wifi", "ble"}
     if required_modules.issubset(missing_set):
         debug("critical", "No attack modules available. Exiting.")
         sys.exit(1)
@@ -125,20 +118,17 @@ def cli_mode():
         if 'ModuleSetup' in globals() and ModuleSetup:
             print("1. WiFi Attack Module")
         else: print(f"{Fore.RED}1. WiFi Attack Module{Style.RESET_ALL}")
-        if 'HandshakeCaptureModule' in globals() and HandshakeCaptureModule:
-            print("2. Handshake Capture Module")
-        else: print(f"{Fore.RED}2. Handshake Capture Module{Style.RESET_ALL}")
         if 'Scanner' in globals() and Scanner:
-            print("3. PacketScanner Module")
-        else: print(f"{Fore.RED}3. Packet Scanner Module{Style.RESET_ALL}")
+            print("2. PacketScanner Module")
+        else: print(f"{Fore.RED}2. Packet Scanner Module{Style.RESET_ALL}")
         if 'ScannerAP' in globals() and ScannerAP:
-            print("4. APCC Module")
-        else: print(f"{Fore.RED}4. APCC Control Module{Style.RESET_ALL}")
+            print("3. APCC Module")
+        else: print(f"{Fore.RED}3. APCC Control Module{Style.RESET_ALL}")
         if 'BleModule' in globals() and BleModule:
-            print("5. Ble Spam Module")
+            print("4. Ble Spam Module")
         if 'bluetooth' in globals() and bluetooth:
-            print("6. Bluetooth Scanner Module")
-        else: print(f"{Fore.RED}6. Bluetooth Scanner Module{Style.RESET_ALL}")
+            print("5. Bluetooth Scanner Module")
+        else: print(f"{Fore.RED}5. Bluetooth Scanner Module{Style.RESET_ALL}")
         print("0. Exit")
         
         choice = input("\nModule: ").strip()
@@ -150,17 +140,9 @@ def cli_mode():
             wifi = ModuleSetup()
             wifi.run()
             return False
-
-        elif choice == "2" or choice.lower() == "handshake":
-            if 'HandshakeCaptureModule' not in globals() or not HandshakeCaptureModule:
-                debug("critical", "Handshake Capture module not loaded")
-                return False
-            hc = HandshakeCaptureModule()
-            hc.run()
-            return False
         
         # ooh this is new
-        elif choice == "3" or choice.lower() == "scanner":
+        elif choice == "2" or choice.lower() == "scanner":
             if 'Scanner' not in globals() or not Scanner:
                 debug("critical", "Scanner module not loaded")
                 return False
@@ -169,7 +151,7 @@ def cli_mode():
             scan.run()
             return False
         
-        elif choice == "4" or choice.lower() == "APCC Module" or choice.lower() == "apcc":
+        elif choice == "3" or choice.lower() == "APCC Module" or choice.lower() == "apcc":
             if 'ScannerAP' not in globals() or not ScannerAP:
                 debug("critical", "AP Inspector module not loaded")
                 return False
@@ -178,7 +160,7 @@ def cli_mode():
             scan.run()
             return False
         
-        elif choice == "6" or choice.lower() == "ble advertisement":
+        elif choice == "4" or choice.lower() == "ble advertisement":
             if 'BleModule' not in globals() or not BleModule:
                 debug("critical", "Ble Module not loaded")
                 return False
@@ -195,7 +177,7 @@ def cli_mode():
                 ble.run(hci)
             except Exception as e:  # noqa: BLE001
                 debug("critical", str(e))
-        elif choice.lower() == "7" or choice.lower() == "bluetooth":
+        elif choice.lower() == "5" or choice.lower() == "bluetooth":
             if 'bluetooth' not in globals() or not bluetooth:
                 debug("critical", "Bluetooth module not loaded")
                 return False
