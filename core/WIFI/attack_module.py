@@ -12,7 +12,7 @@ from .handshake_module import handshake
 from .michael_mic import michael_mic_dos
 from .probe_dos import probe_dos
 from .quiet_device import quiet_flood, quiet_targeted
-
+from .pmkid_module import pmkid, PmkidArgs
 
 class AttackModule:
     deauth_all = staticmethod(deauth_all)
@@ -29,3 +29,5 @@ class AttackModule:
     quiet_flood = staticmethod(quiet_flood)
     quiet_targeted = staticmethod(quiet_targeted)
     handshake = staticmethod(handshake)
+    pmkid = staticmethod(pmkid)
+    pmkidArgs = staticmethod(PmkidArgs)
