@@ -31,7 +31,7 @@ packaging==26.3
     #   pyinstaller-hooks-contrib
 pefile==2024.8.26 ; sys_platform == 'win32'
     # via pyinstaller
-platformdirs==4.14.0
+platformdirs==4.14.3
     # via textual
 pygments==2.21.0
     # via
