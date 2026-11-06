@@ -161,9 +161,17 @@ def load_settings(save_dir: Path) -> dict:
     if path.is_file():
         try:
             loaded = json.loads(path.read_text())
+            # Only known keys are accepted; unknown keys from a tampered file are
+            # ignored rather than carried into command construction.
             settings.update({k: v for k, v in loaded.items() if k in DEFAULTS})
         except (OSError, json.JSONDecodeError, AttributeError, TypeError) as e:
             debug("warn", f"Could not load settings from {path}: {e} — using defaults.")
+    # Validate/sanitize on load: a hand-edited or corrupt settings.json must not
+    # pass malformed values (bad channel, IP range, oversized SSID, etc.) straight
+    # to hostapd/dnsmasq/iptables. validate_settings corrects out-of-range values.
+    settings, warnings = validate_settings(settings)
+    for w in warnings:
+        debug("warn", f"settings.json: {w}")
     return settings
 
 
