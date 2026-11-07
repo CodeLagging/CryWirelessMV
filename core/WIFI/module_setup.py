@@ -240,7 +240,7 @@ class ModuleSetup:
             print("8. Bad Message Targeted")
             print("9. Quiet Targeted")
             print("10. Four-way Handshake")
-            print("11. PMKID Capture")
+            print("11. PMKID Capture (Experimental)")
             print("0. Exit")
             atkmode = input("\nAttack Mode: ").strip()
 
@@ -248,15 +248,23 @@ class ModuleSetup:
                 break
             running = False
             try:
+                
+                
                 if atkmode == "1" or atkmode.lower() == "authentication denial of service":
                     AttackModule.auth_dos(self.interface, chosen_bssid, channel)
                     running = True
+                
+                
                 elif atkmode == "2" or atkmode.lower() == "michael countermeasures dos":
                     AttackModule.michael_mic_dos(self.interface, chosen_bssid, channel)
                     running = True
+                
+                
                 elif atkmode == "3" or atkmode.lower() == "deauthentication denial of service":
                     AttackModule.deauth_all(self.interface, chosen_bssid)
                     running = True
+                
+                
                 elif atkmode == "4" or atkmode.lower() == "probe flood dos":
                     try:
                         channel = int(channel)
@@ -267,9 +275,13 @@ class ModuleSetup:
                             channel = int(input("Target Channel: "))
                             AttackModule.probe_dos(self.interface, channel)
                             running = True
+                
+                
                 elif AttackModule.disassoc_all and (atkmode == "5" or atkmode.lower() == "disassociation denial of service"):
                     AttackModule.disassoc_all(self.interface, chosen_bssid)
                     running = True
+                
+                
                 elif AttackModule.flood_csa and (atkmode == "6" or atkmode.lower() == "targeted channel switch announcement"):
                     try:
                         channel = int(channel)
@@ -284,13 +296,19 @@ class ModuleSetup:
                     debug("info", "Targeted CSA running... If you meant to Flood CSA please go to 'Other Attacks' option")
                     AttackModule.targeted_csa(self.interface, chosen_bssid, ssid, channel)
                     running = True
+                
+                
                 elif AttackModule.action_frame_flood and (atkmode == "7" or atkmode.lower() == "action frames"):
                     AttackModule.action_frame_flood(self.interface, chosen_bssid)
                     running = True
+                    
+                
                 elif AttackModule.bad_message_targeted and (atkmode == "8" or atkmode.lower() == "bad message targeted"):
                     debug("info", "Bad Message Targeted running... If you meant to Bad Message Flood please go to 'Other Attacks' option")
                     AttackModule.bad_message_targeted(self.interface, chosen_bssid, ssid)
                     running = True
+                
+                
                 elif AttackModule.quiet_targeted and (atkmode == "9" or atkmode.lower() == "quiet targeted"):
                     debug("info", "Quiet Targeted running... If you meant to Quiet Flood please go to 'Other Attacks' option")
                     if channel is not None:
@@ -300,6 +318,8 @@ class ModuleSetup:
                             channel = None
                     AttackModule.quiet_targeted(self.interface, chosen_bssid, ssid, channel)
                     running = True
+                
+                
                 elif atkmode == "10" or atkmode.lower() == "four-way handshake":
                     debug("info", "Four-way Handshake running...")
                     if channel is None:
@@ -318,8 +338,11 @@ class ModuleSetup:
                     else:
                         debug("warn", f"Handshake failed: {res.error or 'unknown'}")
                     running = True
+                
+                
                 elif atkmode == "11" or atkmode.lower() == "pmkid":
                     debug("info", "PMKID capture running")
+                    debug("warn", "PMKID capture is experimental and may not work at all")
                     if channel is None:
                         debug("critical", "PMKID requires a channel; aborting")
                         return
