@@ -160,7 +160,7 @@ def cli_mode():
             scan.run()
             return False
         
-        elif choice == "5890fff168466477fb59ddb4fdfe81135285b71d2cf7ca562b90e94c7b89bfc9": import core.cwmv # funny (sha256sum btw)
+        elif choice == "5890fff168466477fb59ddb4fdfe81135285b71d2cf7ca562b90e94c7b89bfc9": import core.cwmv # noqa
         elif choice == "4" or choice.lower() == "ble advertisement":
             if 'BleModule' not in globals() or not BleModule:
                 debug("critical", "Ble Module not loaded")

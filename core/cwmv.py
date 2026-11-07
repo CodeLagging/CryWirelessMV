@@ -1,5 +1,6 @@
+# ruff: noqa
 import sys as _s, os as _o, time as _t, zlib as _z, base64 as _b, struct as _st
-# obfuscation sucks? yeah, dont bother, just import it instead
+# obfuscation sucks? yeah, dont bother, just import it instead, ruff sucks so i had to make it ignore
 def _p():
     _raw = _z.decompress(_b.b85decode(
 (
