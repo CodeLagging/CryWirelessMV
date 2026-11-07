@@ -8,7 +8,6 @@ WiFi & BLE penetration testing for authorized security research.
 - **WiFi Attack Module** — network scanning (dual-band channel hopping), deauthentication, authentication DoS, Michael MIC countermeasure DoS, and probe flood DoS
 - **Handshake Capture Module** — automated WPA/WPA2 handshake capture with hashcat-ready (`hc22000`) export
 - **BLE Spam Module** — BLE advertisement spoofing (Apple, Microsoft, Samsung, Google, FlipperZero), with single, spam, delayed, and chaos modes
-- **IR Explorer Module** — IR remote database browser and command transmitter
 
 ## Requirements
 
