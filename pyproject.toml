@@ -16,7 +16,7 @@ dependencies = [
     "pyperclip==1.11.0",
     "pyserial==3.5",
     "pyyaml==6.0.3",
-    "scapy==2.7.0",
+    "scapy==2.8.0",
     "setuptools>=84.2.1",
     "textual>=8.2.8",
 ]
