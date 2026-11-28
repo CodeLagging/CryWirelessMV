@@ -1,3 +1,15 @@
+> [!IMPORTANT]
+> This github repository (CryWirelessMV) is now moving to Codeberg!
+>
+> Please visit our new repository location: [CryWirelessMV - Codeberg](https://codeberg.org/CodeLagging/CryWirelessMV).
+> This repository will no longer be updated
+
+> [!WARNING]
+> Since this repository is no longer being updated, bug fixes or new features will be in our new Codeberg repository
+>
+> We recommend to download the tool in the new repository for these bug fixes and new features (and trust me, there are alot of bugs in here)
+
+
 ![CI](https://github.com/CodeLagging/CryWirelessMV/actions/workflows/ci.yml/badge.svg)
 # CryWirelessMV
 
